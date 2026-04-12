@@ -81,6 +81,8 @@ LaunchTask ActorManager::RunCoroutine() {
   main_latch_.count_down();
 }
 
+void ActorManager::ReloadModule(std::string_view module_name) {}
+
 void ActorManager::Shutdown() { stop_ = true; }
 
 } // namespace ac

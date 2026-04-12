@@ -1,5 +1,6 @@
 add_library(corelib
   STATIC
+  mail_box.cc
   actor_module.cc
   actor_manager.cc
   actor_scheduler.cc
