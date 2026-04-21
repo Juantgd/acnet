@@ -1,3 +1,5 @@
+// Copyright (c) 2026 juantgd. All Rights Reserved.
+
 #ifndef AC_INCLUDE_HELPER_H_
 #define AC_INCLUDE_HELPER_H_
 
@@ -34,20 +36,20 @@ inline const char *gettimestamp() {
 }
 
 #define LOG_D(fmt, ...)                                                        \
-  fprintf(stdout, "[%s] [DEBUG] [%s:%d] %s\n", gettimestamp(), __FILE__,       \
-          __LINE__, std::format(fmt, ##__VA_ARGS__).c_str())
+  fprintf(stdout, "[%s] [\033[34mDEBUG\033[0m] [%s:%d] %s\n", gettimestamp(),  \
+          __FILE__, __LINE__, std::format(fmt, ##__VA_ARGS__).c_str())
 
 #define LOG_I(fmt, ...)                                                        \
-  fprintf(stdout, "[%s] [INFO] [%s:%d] %s\n", gettimestamp(), __FILE__,        \
-          __LINE__, std::format(fmt, ##__VA_ARGS__).c_str())
+  fprintf(stdout, "[%s] [\033[32mINFO\033[0m] [%s:%d] %s\n", gettimestamp(),   \
+          __FILE__, __LINE__, std::format(fmt, ##__VA_ARGS__).c_str())
 
 #define LOG_W(fmt, ...)                                                        \
-  fprintf(stderr, "[%s] [WARN] [%s:%d] %s\n", gettimestamp(), __FILE__,        \
-          __LINE__, std::format(fmt, ##__VA_ARGS__).c_str())
+  fprintf(stderr, "[%s] [\033[33mWARN\033[0m] [%s:%d] %s\n", gettimestamp(),   \
+          __FILE__, __LINE__, std::format(fmt, ##__VA_ARGS__).c_str())
 
 #define LOG_E(fmt, ...)                                                        \
-  fprintf(stderr, "[%s] [ERROR] [%s:%d] %s\n", gettimestamp(), __FILE__,       \
-          __LINE__, std::format(fmt, ##__VA_ARGS__).c_str())
+  fprintf(stderr, "[%s] [\033[31mERROR\033[0m] [%s:%d] %s\n", gettimestamp(),  \
+          __FILE__, __LINE__, std::format(fmt, ##__VA_ARGS__).c_str())
 
 } // namespace ac
 

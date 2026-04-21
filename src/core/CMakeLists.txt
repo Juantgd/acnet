@@ -1,3 +1,5 @@
+# Copyright (c) 2026 juantgd. All Rights Reserved.
+
 add_library(corelib
   STATIC
   mail_box.cc
@@ -15,7 +17,7 @@ target_compile_definitions(corelib
 )
 
 target_link_libraries(corelib
-  PRIVATE
+  PUBLIC
     glaze::glaze
     quill::quill
 )

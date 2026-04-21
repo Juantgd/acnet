@@ -1,3 +1,5 @@
+// Copyright (c) 2026 juantgd. All Rights Reserved.
+
 #ifndef AC_CORE_ACTOR_EVENT_BUS_H_
 #define AC_CORE_ACTOR_EVENT_BUS_H_
 

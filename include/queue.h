@@ -1,3 +1,5 @@
+// Copyright (c) 2026 juantgd. All Rights Reserved.
+
 #ifndef AC_INCLUDE_SPSC_QUEUE_H_
 #define AC_INCLUDE_SPSC_QUEUE_H_
 

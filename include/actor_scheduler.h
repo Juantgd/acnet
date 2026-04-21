@@ -1,3 +1,5 @@
+// Copyright (c) 2026 juantgd. All Rights Reserved.
+
 #ifndef AC_CORE_ACTOR_SCHEDULER_H_
 #define AC_CORE_ACTOR_SCHEDULER_H_
 
@@ -43,7 +45,10 @@ private:
 
   ActorScheduler();
 
-  void Shutdown() { running_.store(false, std::memory_order_relaxed); }
+  void Shutdown() {
+    global_queue_.stop();
+    running_.store(false, std::memory_order_relaxed);
+  }
 
   static void *scheduler_thread(void *arg);
   pthread_t *worker_threads_;

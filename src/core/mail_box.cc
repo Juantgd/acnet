@@ -1,3 +1,5 @@
+// Copyright (c) 2026 juantgd. All Rights Reserved.
+
 #include "mail_box.h"
 #include "actor_scheduler.h"
 

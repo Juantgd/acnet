@@ -1,3 +1,5 @@
+// Copyright (c) 2026 juantgd. All Rights Reserved.
+
 #ifndef AC_INCLUDE_ACTOR_MANAGER_H_
 #define AC_INCLUDE_ACTOR_MANAGER_H_
 
@@ -24,6 +26,7 @@ public:
 
   void LoadModules();
 
+  // TODO: implementation of module reload
   void ReloadModule(std::string_view module_name);
 
   void EventLoop();
@@ -33,7 +36,7 @@ public:
   void Shutdown();
 
 private:
-  bool stop_{true};
+  bool is_running_{false};
   std::latch main_latch_{1};
 
   std::unordered_map<std::size_t, ActorMetaData> childrens_;

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 juantgd. All Rights Reserved.
+
 #ifndef AC_CORE_MAIL_BOX_H_
 #define AC_CORE_MAIL_BOX_H_
 

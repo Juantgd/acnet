@@ -1,3 +1,5 @@
+// Copyright (c) 2026 juantgd. All Rights Reserved.
+
 #ifndef AC_INCLUDE_TASK_H_
 #define AC_INCLUDE_TASK_H_
 
@@ -91,8 +93,8 @@ struct LaunchTask {
     std::suspend_never final_suspend() noexcept { return {}; }
     void unhandled_exception() noexcept { std::terminate(); }
   };
-  explicit LaunchTask(std::coroutine_handle<> handle) : handle(handle) {}
-  std::coroutine_handle<> handle;
+  explicit LaunchTask(std::coroutine_handle<> handle) : handle_(handle) {}
+  std::coroutine_handle<> handle_;
 };
 
 inline LaunchTask LaunchTask::promise_type::get_return_object() noexcept {

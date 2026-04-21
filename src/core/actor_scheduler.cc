@@ -1,3 +1,5 @@
+// Copyright (c) 2026 juantgd. All Rights Reserved.
+
 #include "actor_scheduler.h"
 
 #include <atomic>
@@ -54,7 +56,7 @@ void *ActorScheduler::scheduler_thread(void *arg) {
   ActorScheduler *sched = tls_worker->sched;
   std::mt19937 rng(tls_worker->worker_id);
   char thread_name[16];
-  int ret = snprintf(thread_name, 16, "sched-worker-%u", tls_worker->worker_id);
+  snprintf(thread_name, 16, "sched-worker-%u", tls_worker->worker_id);
   pthread_setname_np(pthread_self(), thread_name);
   // 线程屏障,等待其他线程初始化完毕
   pthread_barrier_wait(&sched->thread_barrier_);
@@ -75,7 +77,7 @@ void *ActorScheduler::scheduler_thread(void *arg) {
     }
     // 如果本地没有,则随机窃取其他工作线程的任务
     if (!task) {
-      target_id = rng() % sched->thread_entries_;
+      target_id = static_cast<uint32_t>(rng() % sched->thread_entries_);
       for (uint32_t i = 0; i != sched->thread_entries_; ++i) {
         // 不能窃取自己的任务队列
         if (target_id != tls_worker->worker_id) {

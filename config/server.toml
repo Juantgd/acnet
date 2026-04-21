@@ -1,7 +1,5 @@
-host = "127.0.0.1"
-port = 7788
+library_path = "lib"
 
 [[modules]]
 module_name = "network_module"
-module_version = "0.0.1"
-module_path = "lib/libnetactor.so"
+library_name = "netactor"

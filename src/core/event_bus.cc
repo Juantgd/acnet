@@ -1,3 +1,5 @@
+// Copyright (c) 2026 juantgd. All Rights Reserved.
+
 #include "event_bus.h"
 
 namespace ac {
@@ -32,9 +34,9 @@ void ActorEventBus::Publish(EventMessage *message) {
   if (local_version < version_.load(std::memory_order_relaxed)) [[unlikely]] {
     __sync_route_table();
   }
-  auto it = local_event_bus.find(message->type);
+  auto it = local_event_bus.find(message->type_);
   if (it != local_event_bus.end()) {
-    message->ref.store(it->second.size(), std::memory_order_relaxed);
+    message->ref_.store(it->second.size(), std::memory_order_relaxed);
     for (auto &mb : it->second) {
       mb->Send(message);
     }
