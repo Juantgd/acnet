@@ -71,7 +71,6 @@ void ActorManager::__load_module(std::string_view module_name) {
           LOG_E("Failed to load library: {}, error: {}", path, dlerror());
         }
       creator_exit:
-        LOG_I("Module Exited.");
         // send exited message to parent mailbox
         EventMessage *msg =
             new EventMessage(1, EventType::kEventModuleExited, actor_id);
@@ -156,7 +155,6 @@ LaunchTask ActorManager::RunCoroutine() {
       LOG_I("module: {} exited, id: {}, modules: {}", module_name,
             msg->sender_id_, childrens_.size());
       if (reload_flag) {
-        LOG_W("module are exited, now reload module");
         __reload_module(module_name);
       }
       break;

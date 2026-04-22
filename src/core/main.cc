@@ -8,8 +8,7 @@ static ac::ActorManager manager;
 
 void sigal_handle(int sig_num) {
   (void)sig_num;
-  // manager.Shutdown();
-  manager.ReloadModule("network_module");
+  manager.Shutdown();
 }
 
 int main(int argc, char *argv[]) {

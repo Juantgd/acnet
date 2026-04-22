@@ -217,7 +217,7 @@ public:
     }
     std::size_t idle_nr = idle_threads_.load(std::memory_order_relaxed);
     std::size_t wake_count = std::min(tasks.size(), idle_nr);
-    LOG_I("idle_nr: {},tasks: {}", idle_nr, tasks.size());
+    LOG_D("idle_nr: {},tasks: {}", idle_nr, tasks.size());
     // 精确唤醒,避免多个工作线程竞争同一个任务
     while (wake_count--) {
       cond_.notify_one();
