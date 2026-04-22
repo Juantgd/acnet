@@ -37,6 +37,8 @@ public:
 
   ac_config &GetConfigInfo() { return config_info_; }
 
+  void UpdateConfig();
+
 private:
   PluginManager() {
     if (!__config_loader()) {

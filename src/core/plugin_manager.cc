@@ -17,6 +17,8 @@
 namespace ac {
 
 bool PluginManager::__config_loader() {
+  config_info_.library_path.clear();
+  config_info_.modules.clear();
   struct stat config_stat;
   if (stat(kConfigPath, &config_stat)) {
     LOG_E("Failed to load config file, error: {}", strerror(errno));
@@ -44,7 +46,15 @@ bool PluginManager::__config_loader() {
     close(fd);
     return false;
   }
+  close(fd);
   return true;
+}
+
+void PluginManager::UpdateConfig() {
+  if (!__config_loader()) {
+    LOG_E("failed to update config info.");
+    std::terminate();
+  }
 }
 
 } // namespace ac

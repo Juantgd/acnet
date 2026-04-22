@@ -153,12 +153,12 @@ public:
         // 无论竞争成功还是失败,top都已经被修改,所以需要恢复bottom
         bottom_.store(bt + 1, std::memory_order_relaxed);
       }
-      handle.from_address(ptr);
+      handle = std::coroutine_handle<>::from_address(ptr);
       return ptr ? StealState::kSuccess : StealState::kEmpty;
     }
     // 当前队列为空,恢复bottom
     bottom_.store(bt + 1, std::memory_order_relaxed);
-    handle.from_address(nullptr);
+    handle = std::coroutine_handle<>::from_address(nullptr);
     return StealState::kEmpty;
   }
 
@@ -172,15 +172,15 @@ public:
       if (!top_.compare_exchange_strong(tp, tp + 1, std::memory_order_seq_cst,
                                         std::memory_order_relaxed)) {
         // 竞争失败,其他线程已经窃取该元素
-        handle.from_address(nullptr);
+        handle = std::coroutine_handle<>::from_address(nullptr);
         return StealState::kAbort;
       }
       // 竞争成功
-      handle.from_address(ptr);
+      handle = std::coroutine_handle<>::from_address(ptr);
       return StealState::kSuccess;
     }
     // 队列为空
-    handle.from_address(nullptr);
+    handle = std::coroutine_handle<>::from_address(nullptr);
     return StealState::kEmpty;
   }
 
@@ -195,10 +195,10 @@ public:
   GlobalQueue() = default;
   ~GlobalQueue() = default;
 
-  void push(std::coroutine_handle<> task) {
+  void push(const std::coroutine_handle<> &task) {
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      queue_.push_back(task);
+      queue_.push_back(task.address());
     }
     if (idle_threads_.load(std::memory_order_relaxed) > 0) {
       // 仅唤醒一个工作线程执行
@@ -212,14 +212,16 @@ public:
     }
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      queue_.insert(queue_.end(), tasks.begin(), tasks.end());
+      for (const auto &task : tasks)
+        queue_.push_back(task.address());
     }
     std::size_t idle_nr = idle_threads_.load(std::memory_order_relaxed);
     std::size_t wake_count = std::min(tasks.size(), idle_nr);
+    LOG_I("idle_nr: {},tasks: {}", idle_nr, tasks.size());
     // 精确唤醒,避免多个工作线程竞争同一个任务
-    do {
+    while (wake_count--) {
       cond_.notify_one();
-    } while (--wake_count);
+    }
   }
 
   // 当工作线程中没有任务时，弹出全局队列中的就绪任务
@@ -235,7 +237,7 @@ public:
         return nullptr;
       }
       // TODO: 当队列中就绪的任务过多时,直接弹出一大批任务,避免频繁的锁竞争
-      task = queue_.front();
+      task = std::coroutine_handle<>::from_address(queue_.front());
       queue_.pop_front();
     }
     return task;
@@ -246,7 +248,7 @@ public:
     std::unique_lock<std::mutex> lock(mutex_);
     if (queue_.empty())
       return nullptr;
-    std::coroutine_handle<> task = queue_.front();
+    auto task = std::coroutine_handle<>::from_address(queue_.front());
     queue_.pop_front();
     return task;
   }
@@ -254,6 +256,8 @@ public:
   void stop() {
     {
       std::lock_guard<std::mutex> lock(mutex_);
+      if (stop_flag)
+        return;
       stop_flag = true;
     }
     cond_.notify_all();
@@ -262,7 +266,7 @@ public:
 private:
   std::mutex mutex_;
   std::condition_variable cond_;
-  std::deque<std::coroutine_handle<>> queue_;
+  std::deque<void *> queue_;
   std::atomic<std::size_t> idle_threads_{0};
   bool stop_flag{false};
 };

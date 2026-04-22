@@ -15,6 +15,7 @@ namespace ac {
 enum class EventType {
   kEventNone = 0,
   kEventExited,
+  kEventModuleExited,
   kEventModuleStop,
   kEventModuleReload,
   kEventCrashReport,

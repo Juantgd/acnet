@@ -34,7 +34,9 @@ public:
     return sched;
   }
 
-  void Enqueue(std::coroutine_handle<> handle);
+  void Enqueue(const std::coroutine_handle<> &handle);
+
+  void EnqueueBatch(const std::vector<std::coroutine_handle<>> &tasks);
 
   inline bool is_running() const {
     return running_.load(std::memory_order_relaxed);
@@ -46,8 +48,8 @@ private:
   ActorScheduler();
 
   void Shutdown() {
-    global_queue_.stop();
     running_.store(false, std::memory_order_relaxed);
+    global_queue_.stop();
   }
 
   static void *scheduler_thread(void *arg);

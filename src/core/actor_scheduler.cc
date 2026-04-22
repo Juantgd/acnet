@@ -32,8 +32,7 @@ ActorScheduler::ActorScheduler() {
 }
 
 ActorScheduler::~ActorScheduler() {
-  running_.store(false, std::memory_order_relaxed);
-  global_queue_.stop();
+  Shutdown();
   for (unsigned int i = 0; i != thread_entries_; ++i) {
     pthread_join(worker_threads_[i], NULL);
     workers_[i].~Worker();
@@ -43,11 +42,16 @@ ActorScheduler::~ActorScheduler() {
   pthread_barrier_destroy(&thread_barrier_);
 }
 
-void ActorScheduler::Enqueue(std::coroutine_handle<> handle) {
+void ActorScheduler::Enqueue(const std::coroutine_handle<> &handle) {
   // 本地工作线程任务队列已满,将其推入全局任务队列中
   if (!tls_worker || !(tls_worker->local_queue.push(handle))) {
     global_queue_.push(handle);
   }
+}
+
+void ActorScheduler::EnqueueBatch(
+    const std::vector<std::coroutine_handle<>> &tasks) {
+  global_queue_.push_batch(tasks);
 }
 
 // 本地调度线程入口函数
@@ -91,9 +95,11 @@ void *ActorScheduler::scheduler_thread(void *arg) {
     // 当前工作线程没有就绪的任务,且窃取其他工作线程中的任务队列失败
     // 则从全局队列中阻塞获取就绪任务
     if (!task) {
+      // 如果全局任务队列为空，这里会一直阻塞
       task = sched->global_queue_.wait_and_pop();
     }
     if (task && !task.done()) {
+      LOG_I("[{}] got the task, task: {}", thread_name, task.address());
       task.resume();
     }
   }

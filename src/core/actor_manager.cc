@@ -15,13 +15,15 @@ ActorManager::ActorManager() { mailbox_ = std::make_shared<MailBox>(); }
 
 ActorManager::~ActorManager() { Shutdown(); }
 
-void ActorManager::LoadModules() {
+void ActorManager::__load_module(std::string_view module_name) {
   // loading configures and mount module
-  auto config = PluginManager::Instance().GetConfigInfo();
-  std::vector<std::coroutine_handle<>> tasks(config.modules.size());
-
+  const auto &config = PluginManager::Instance().GetConfigInfo();
   if (!config.modules.empty()) {
-    for (auto mod : config.modules) {
+    std::vector<std::coroutine_handle<>> tasks;
+    for (const auto &mod : config.modules) {
+      if (!module_name.empty() && module_name != mod.module_name) {
+        continue;
+      }
       std::string path =
           std::format("{}/lib{}.so", config.library_path, mod.library_name);
       // print module information
@@ -70,21 +72,24 @@ void ActorManager::LoadModules() {
         }
       creator_exit:
         LOG_I("Module Exited.");
+        // send exited message to parent mailbox
+        EventMessage *msg =
+            new EventMessage(1, EventType::kEventModuleExited, actor_id);
+        this->mailbox_->Send(msg);
         co_await std::suspend_never();
       };
 
       ActorMetaData metadata{.actor_id = generate_unique_id(),
                              .mailbox = std::make_shared<MailBox>(),
+                             .module_name = mod.module_name,
                              .creator = std::move(creator)};
       auto module_task = metadata.creator(metadata.actor_id, metadata.mailbox);
+
       childrens_.emplace(metadata.actor_id, std::move(metadata));
 
       tasks.push_back(module_task.handle_);
     }
-  }
-
-  for (auto task : tasks) {
-    ActorScheduler::Instance().Enqueue(task);
+    ActorScheduler::Instance().EnqueueBatch(tasks);
   }
 }
 
@@ -92,6 +97,8 @@ void ActorManager::EventLoop() {
   is_running_ = true;
   auto event_loop = RunCoroutine();
   ActorScheduler::Instance().Enqueue(event_loop.handle_);
+
+  __load_module();
 
   // blocking until event loop coroutine done.
   main_latch_.wait();
@@ -108,7 +115,10 @@ LaunchTask ActorManager::RunCoroutine() {
     }
     switch (msg->type_) {
     case EventType::kEventModuleReload: {
-      ReloadModule(msg->get<std::string>());
+      if (!__search_module_and_remove(msg->get<std::string>())) {
+        // module not found
+        __reload_module(msg->get<std::string>());
+      }
       break;
     }
     case EventType::kEventCrashReport: {
@@ -121,6 +131,33 @@ LaunchTask ActorManager::RunCoroutine() {
         ActorScheduler::Instance().Enqueue(task.handle_);
       } else {
         LOG_W("Actor Not found, actor id: {}", msg->sender_id_);
+      }
+      break;
+    }
+    case EventType::kEventModuleExited: {
+      bool reload_flag = false;
+      if (!pedding_reload_.empty()) {
+        for (std::size_t i = 0; i != pedding_reload_.size(); ++i) {
+          if (msg->sender_id_ == pedding_reload_[i]) {
+            std::swap(pedding_reload_.back(), pedding_reload_[i]);
+            pedding_reload_.pop_back();
+            reload_flag = true;
+            break;
+          }
+        }
+      }
+      auto it = childrens_.find(msg->sender_id_);
+      if (it == childrens_.end()) {
+        LOG_E("failed to unmount module");
+        break;
+      }
+      std::string module_name = std::move(it->second.module_name);
+      childrens_.erase(it);
+      LOG_I("module: {} exited, id: {}, modules: {}", module_name,
+            msg->sender_id_, childrens_.size());
+      if (reload_flag) {
+        LOG_W("module are exited, now reload module");
+        __reload_module(module_name);
       }
       break;
     }
@@ -137,7 +174,30 @@ coro_exit:
   main_latch_.count_down();
 }
 
-void ActorManager::ReloadModule(std::string_view module_name) {}
+void ActorManager::__reload_module(std::string_view module_name) {
+  PluginManager::Instance().UpdateConfig();
+  __load_module(module_name);
+}
+
+bool ActorManager::__search_module_and_remove(std::string_view module_name) {
+  for (auto it = childrens_.begin(); it != childrens_.end(); ++it) {
+    if (it->second.module_name == module_name) {
+      EventMessage *message =
+          new EventMessage(1, EventType::kEventModuleStop, 0);
+      it->second.mailbox->Send(message);
+      pedding_reload_.push_back(it->first);
+      return true;
+    }
+  }
+  return false;
+}
+
+void ActorManager::ReloadModule(std::string_view module_name) {
+  LOG_I("try to reload module: {}", module_name);
+  EventMessage *msg = new EventMessage(1, ac::EventType::kEventModuleReload, 0);
+  msg->set(std::string(module_name));
+  mailbox_->Send(msg);
+}
 
 void ActorManager::Shutdown() {
   if (is_running_) {
