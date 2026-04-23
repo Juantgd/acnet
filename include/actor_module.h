@@ -12,12 +12,14 @@ namespace ac {
 // 监管Actor也可以重新通过模块类拉起
 class ActorModule {
 public:
-  // 模块初始化时,向事件总线订阅相关事件消息
   ActorModule(std::size_t id, MailBoxPtr parent_mailbox);
-  // 模块析构时,取消相关的订阅
-  virtual ~ActorModule() = default;
+  virtual ~ActorModule();
 
-  virtual Task<void> RunCoroutine(MailBoxPtr mailbox) = 0;
+  virtual void Init(MailBoxPtr &) {}
+
+  virtual void Uninit(MailBoxPtr &) {}
+
+  virtual Task<void> RunCoroutine(MailBoxPtr &mailbox) = 0;
 
   inline std::size_t get_id() const noexcept { return actor_id_; }
 
@@ -30,6 +32,8 @@ protected:
   std::size_t actor_id_;
   // parent mailbox
   MailBoxPtr parent_mailbox_;
+  // 当前处理的EventMessage
+  EventMessage *msg_{nullptr};
 };
 
 typedef ActorModule *(*CreateModuleFunc)(std::size_t id,

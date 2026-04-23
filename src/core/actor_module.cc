@@ -7,6 +7,12 @@ namespace ac {
 ActorModule::ActorModule(std::size_t id, MailBoxPtr parent_mailbox)
     : actor_id_(id), parent_mailbox_(parent_mailbox) {}
 
+ActorModule::~ActorModule() {
+  if (msg_) {
+    event_message_release(&msg_);
+  }
+}
+
 void ActorModule::CrashReport(const std::exception &e) {
   // error handle
   this->error_handle(e);

@@ -2,33 +2,45 @@
 
 #include "gateway_actor.h"
 
+#include "event_bus.h"
+
 namespace ac {
 
 GateWayActor::GateWayActor(std::size_t actor_id, MailBoxPtr parent_mailbox)
     : ActorModule(actor_id, parent_mailbox) {}
 
-Task<void> GateWayActor::RunCoroutine(MailBoxPtr mailbox) {
+void GateWayActor::Init(MailBoxPtr &mailbox) {
+  ActorEventBus::Instance().Subscribe(EventType::kEventCmdModuleStop, mailbox);
+}
+
+void GateWayActor::Uninit(MailBoxPtr &mailbox) {
+  ActorEventBus::Instance().Unsubscribe(EventType::kEventCmdModuleStop,
+                                        mailbox);
+}
+
+Task<void> GateWayActor::RunCoroutine(MailBoxPtr &mailbox) {
   LOG_I("[NetActor id: {}] module starting...", actor_id_);
-  EventMessage *msg = nullptr;
-  goto coro_exit;
+  std::this_thread::sleep_for(std::chrono::seconds(5));
+  // test coroutine crashed restart
+  throw std::runtime_error("boom!boom!boom!");
   while (true) {
-    msg = co_await mailbox->Receive();
-    if (!msg && !mailbox->try_receive(&msg)) [[unlikely]] {
+    msg_ = co_await mailbox->Receive();
+    if (!msg_ && !mailbox->try_receive(&msg_)) [[unlikely]] {
       continue;
     }
     LOG_I("[NetActor id: {}] received a event message...", actor_id_);
-    switch (msg->type_) {
-    case EventType::kEventModuleStop: {
-      event_message_release(msg);
+    switch (msg_->type_) {
+    case EventType::kEventCmdModuleStop: {
+      event_message_release(&msg_);
       goto coro_exit;
       break;
     }
     default:
       LOG_W("[NetActor id: {}] unsupported event message type: {}", actor_id_,
-            static_cast<int>(msg->type_));
+            static_cast<int>(msg_->type_));
       break;
     }
-    event_message_release(msg);
+    event_message_release(&msg_);
   }
 coro_exit:
   LOG_I("[NetActor id: {}] module shutdown...", actor_id_);

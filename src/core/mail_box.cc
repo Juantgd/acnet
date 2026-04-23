@@ -10,7 +10,7 @@ MailBox::MailBox(std::size_t size) : mailbox_(size) {}
 MailBox::~MailBox() {
   EventMessage *msg;
   while (mailbox_.try_dequeue(&msg)) {
-    event_message_release(msg);
+    event_message_release(&msg);
   }
 }
 

@@ -6,6 +6,7 @@
 #include <functional>
 #include <latch>
 #include <string_view>
+#include <unordered_set>
 #include <unordered_map>
 
 #include "mail_box.h"
@@ -36,6 +37,9 @@ public:
 private:
   auto __generate_creator(std::string path);
 
+  LaunchTask __launch_actor(std::string path, std::size_t actor_id,
+                            MailBoxPtr mailbox);
+
   void __load_modules();
 
   bool __search_module_and_remove(std::string_view module_name);
@@ -49,7 +53,8 @@ private:
   std::latch main_latch_{1};
 
   std::unordered_map<std::size_t, ActorMetaData> childrens_;
-  std::vector<std::size_t> pedding_reload_;
+  std::unordered_set<std::size_t> pending_restart_;
+  std::vector<std::size_t> pending_reload_;
 
   MailBoxPtr mailbox_;
 };

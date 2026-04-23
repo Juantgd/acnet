@@ -12,7 +12,11 @@ public:
   GateWayActor(std::size_t actor_id, MailBoxPtr parent_mailbox);
   ~GateWayActor() = default;
 
-  Task<void> RunCoroutine(MailBoxPtr mailbox) override;
+  void Init(MailBoxPtr &mailbox) override;
+
+  void Uninit(MailBoxPtr &mailbox) override;
+
+  Task<void> RunCoroutine(MailBoxPtr &mailbox) override;
 
 private:
   int fd_{-1};

@@ -72,7 +72,7 @@ public:
   void await_suspend(std::coroutine_handle<> caller) noexcept {
     handle_.promise().continuation_ = caller;
   }
-  T await_resume() noexcept {
+  T await_resume() {
     auto &p = handle_.promise();
     if (std::holds_alternative<std::exception_ptr>(p.result_)) {
       std::rethrow_exception(std::get<std::exception_ptr>(p.result_));

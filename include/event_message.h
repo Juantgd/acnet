@@ -14,10 +14,12 @@ namespace ac {
 
 enum class EventType {
   kEventNone = 0,
-  kEventExited,
-  kEventModuleExited,
-  kEventModuleStop,
-  kEventModuleReload,
+  kEventCmdExit,
+  kEventCmdModuleStop,
+  kEventCmdModuleReload,
+
+  kEventStatModuleExited,
+
   kEventCrashReport,
 };
 
@@ -53,9 +55,10 @@ struct EventMessage {
 
 // 事件消息结构体销毁函数
 // 事件消息结构体应由new分配并初始化
-inline void event_message_release(EventMessage *msg) {
-  if (msg->ref_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-    delete msg;
+inline void event_message_release(EventMessage **msg) {
+  if ((*msg)->ref_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+    delete *msg;
+    *msg = nullptr;
   }
 }
 
