@@ -4,6 +4,12 @@ cmake_minimum_required(VERSION 3.15)
 
 project(acnet VERSION 0.0.1 LANGUAGES C CXX)
 
+configure_file(
+  ${CMAKE_SOURCE_DIR}/version.h.in
+  ${CMAKE_BINARY_DIR}/version.h
+  @ONLY
+)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -40,7 +46,10 @@ endif()
 add_subdirectory("third_party/glaze")
 add_subdirectory("third_party/quill")
 
-include_directories(${CMAKE_SOURCE_DIR}/include)
+include_directories(
+  ${CMAKE_SOURCE_DIR}/include
+  ${CMAKE_BINARY_DIR}
+)
 
 add_subdirectory(src/core)
 add_subdirectory(src/modules)

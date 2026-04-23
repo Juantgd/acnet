@@ -13,7 +13,7 @@ namespace ac {
 class ActorModule {
 public:
   // 模块初始化时,向事件总线订阅相关事件消息
-  ActorModule(std::size_t id, MailBoxPtr parent_mailbox_);
+  ActorModule(std::size_t id, MailBoxPtr parent_mailbox);
   // 模块析构时,取消相关的订阅
   virtual ~ActorModule() = default;
 
@@ -33,7 +33,7 @@ protected:
 };
 
 typedef ActorModule *(*CreateModuleFunc)(std::size_t id,
-                                         MailBoxPtr parent_mailbox_);
+                                         MailBoxPtr parent_mailbox);
 
 typedef void (*DestroyModuleFunc)(ActorModule *module);
 

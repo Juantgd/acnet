@@ -1,6 +1,29 @@
+// Copyright (c) 2026 juantgd. All Rights Reserved.
+
 #ifndef AC_NETWORK_MODULE_GATEWAY_ACTOR_H_
 #define AC_NETWORK_MODULE_GATEWAY_ACTOR_H_
 
-namespace ac {};
+#include "actor_module.h"
+
+namespace ac {
+
+class GateWayActor : public ActorModule {
+public:
+  GateWayActor(std::size_t actor_id, MailBoxPtr parent_mailbox);
+  ~GateWayActor() = default;
+
+  Task<void> RunCoroutine(MailBoxPtr mailbox) override;
+
+private:
+  int fd_{-1};
+};
+
+extern "C" {
+ActorModule *CreateModule(std::size_t actor_id, MailBoxPtr parent_mailbox);
+
+void DestroyModule(ActorModule *module);
+}
+
+}; // namespace ac
 
 #endif

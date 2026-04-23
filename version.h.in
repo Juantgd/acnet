@@ -1,0 +1,6 @@
+#ifndef AC_VERSION_H_
+#define AC_VERSION_H_
+
+#define ACNET_VERSION "@PROJECT_VERSION@"
+
+#endif
