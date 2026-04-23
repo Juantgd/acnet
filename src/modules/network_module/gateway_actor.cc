@@ -8,14 +8,15 @@ GateWayActor::GateWayActor(std::size_t actor_id, MailBoxPtr parent_mailbox)
     : ActorModule(actor_id, parent_mailbox) {}
 
 Task<void> GateWayActor::RunCoroutine(MailBoxPtr mailbox) {
-  LOG_I("[NetActor] module starting...");
+  LOG_I("[NetActor id: {}] module starting...", actor_id_);
   EventMessage *msg = nullptr;
+  goto coro_exit;
   while (true) {
     msg = co_await mailbox->Receive();
     if (!msg && !mailbox->try_receive(&msg)) [[unlikely]] {
       continue;
     }
-    LOG_I("[NetActor] received a event message...");
+    LOG_I("[NetActor id: {}] received a event message...", actor_id_);
     switch (msg->type_) {
     case EventType::kEventModuleStop: {
       event_message_release(msg);
@@ -23,14 +24,14 @@ Task<void> GateWayActor::RunCoroutine(MailBoxPtr mailbox) {
       break;
     }
     default:
-      LOG_W("[NetActor] unsupported event message type: {}",
+      LOG_W("[NetActor id: {}] unsupported event message type: {}", actor_id_,
             static_cast<int>(msg->type_));
       break;
     }
     event_message_release(msg);
   }
 coro_exit:
-  LOG_I("[NetActor] module shutdown...");
+  LOG_I("[NetActor id: {}] module shutdown...", actor_id_);
 }
 
 extern "C" {

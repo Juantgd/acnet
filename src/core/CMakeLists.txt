@@ -5,7 +5,6 @@ add_library(corelib
   mail_box.cc
   actor_module.cc
   actor_scheduler.cc
-  plugin_manager.cc
   time_wheel.cc
   event_bus.cc
 )
@@ -23,7 +22,11 @@ target_compile_definitions(corelib
   $<$<CONFIG:Debug>:DEBUG_MODE>
 )
 
-add_executable(${PROJECT_NAME} main.cc actor_manager.cc)
+add_executable(${PROJECT_NAME}
+  main.cc
+  actor_manager.cc
+  plugin_manager.cc
+)
 
 target_link_libraries(${PROJECT_NAME}
   PRIVATE

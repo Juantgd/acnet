@@ -13,6 +13,7 @@
 #include <quill/Logger.h>
 #ifdef DEBUG_MODE
 #include <quill/sinks/ConsoleSink.h>
+#include <quill/std/Vector.h>
 #else
 #include <quill/sinks/FileSink.h>
 #endif
@@ -39,9 +40,15 @@ public:
     return log.logger_;
   }
 
+  ~Logger() { quill::Backend::stop(); }
+
 private:
   Logger() {
-    quill::Backend::start();
+    quill::BackendOptions backend_options;
+    backend_options.sleep_duration =
+        std::chrono::microseconds(100);             // 无日志时sleep 10 ms
+    backend_options.enable_yield_when_idle = false; // 关闭 yield
+    quill::Backend::start(backend_options);
 #ifdef DEBUG_MODE
     auto console_sink =
         quill::Frontend::create_or_get_sink<quill::ConsoleSink>("sink_id_1");
@@ -73,18 +80,6 @@ private:
 #define LOG_I(fmt, ...) LOG_INFO(Logger::Instance(), fmt, ##__VA_ARGS__)
 #define LOG_W(fmt, ...) LOG_WARNING(Logger::Instance(), fmt, ##__VA_ARGS__)
 #define LOG_E(fmt, ...) LOG_ERROR(Logger::Instance(), fmt, ##__VA_ARGS__)
-
-// inline thread_local char tls_timebuf[24]{0};
-//
-// inline const char *gettimestamp() {
-//   struct timespec ts;
-//   clock_gettime(CLOCK_REALTIME, &ts);
-//   struct tm t_info;
-//   localtime_r(&ts.tv_sec, &t_info);
-//   strftime(tls_timebuf, 20, "%Y-%m-%d %H:%M:%S", &t_info);
-//   snprintf(tls_timebuf + 19, 5, ".%d", static_cast<int>(ts.tv_nsec /
-//   1000000)); return tls_timebuf;
-// }
 
 } // namespace ac
 
