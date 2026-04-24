@@ -4,6 +4,8 @@ cmake_minimum_required(VERSION 3.15)
 
 project(acnet VERSION 0.0.1 LANGUAGES C CXX)
 
+enable_testing()
+
 configure_file(
   ${CMAKE_SOURCE_DIR}/version.h.in
   ${CMAKE_BINARY_DIR}/version.h
@@ -53,6 +55,7 @@ include_directories(
 
 add_subdirectory(src/core)
 add_subdirectory(src/modules)
+add_subdirectory(tests)
 
 add_custom_target(
   copy_config ALL

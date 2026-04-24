@@ -74,7 +74,7 @@ creator_exit:
   EventMessage *msg =
       new EventMessage(1, EventType::kEventModuleExited, actor_id);
   this->mailbox_->Send(msg);
-  co_await std::suspend_never();
+  co_return;
 }
 
 void ActorManager::__load_modules() {

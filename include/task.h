@@ -92,6 +92,7 @@ struct LaunchTask {
     std::suspend_always initial_suspend() noexcept { return {}; }
     std::suspend_never final_suspend() noexcept { return {}; }
     void unhandled_exception() noexcept { std::terminate(); }
+    void return_void() noexcept {}
   };
   explicit LaunchTask(std::coroutine_handle<> handle) : handle_(handle) {}
   std::coroutine_handle<> handle_;

@@ -65,50 +65,73 @@ private:
 // MPSC队列
 class MailQueue {
 public:
+  struct Slot {
+    std::atomic<std::size_t> sequence;
+    EventMessage *message;
+  };
+
   MailQueue(std::size_t size) {
     size_ = std::bit_ceil(size);
-    queue_ = new std::atomic<void *>[size_];
+    mask_ = size_ - 1;
+    queue_ = new Slot[size_];
+    for (std::size_t i = 0; i != size_; ++i) {
+      queue_[i].sequence.store(i, std::memory_order_relaxed);
+      queue_[i].message = nullptr;
+    }
   }
   ~MailQueue() {
     if (queue_) {
-      delete queue_;
+      delete[] queue_;
       queue_ = nullptr;
     }
   }
   bool try_enqueue(EventMessage *message) {
-    std::size_t read_idx;
-    std::size_t next_write_idx;
+    Slot *slot;
     std::size_t write_idx = write_index_.load(std::memory_order_relaxed);
-    do {
-      read_idx = read_index_.load(std::memory_order_acquire);
-      // 队列元素已满
-      if (write_idx - read_idx >= size_)
+    while (true) {
+      slot = &queue_[write_idx & mask_];
+      std::size_t sequence = slot->sequence.load(std::memory_order_acquire);
+      auto diff = static_cast<std::ptrdiff_t>(sequence) -
+                  static_cast<std::ptrdiff_t>(write_idx);
+      // 当前槽位尚未被消费者释放,队列已满
+      if (diff < 0) {
         return false;
-      next_write_idx = write_idx + 1;
-    } while (!write_index_.compare_exchange_weak(write_idx, next_write_idx,
-                                                 std::memory_order_release,
-                                                 std::memory_order_relaxed));
-    // CAS抢占成功
-    queue_[write_idx & (size_ - 1)].store(message, std::memory_order_relaxed);
+      }
+      if (diff == 0 &&
+          write_index_.compare_exchange_weak(write_idx, write_idx + 1,
+                                             std::memory_order_relaxed,
+                                             std::memory_order_relaxed)) {
+        break;
+      }
+      write_idx = write_index_.load(std::memory_order_relaxed);
+    }
+    slot->message = message;
+    slot->sequence.store(write_idx + 1, std::memory_order_release);
     return true;
   }
   bool try_dequeue(EventMessage **message) {
     std::size_t read_idx = read_index_.load(std::memory_order_relaxed);
-    std::size_t write_idx = write_index_.load(std::memory_order_acquire);
-    // 队列为空
-    if (read_idx == write_idx)
+    Slot *slot = &queue_[read_idx & mask_];
+    std::size_t sequence = slot->sequence.load(std::memory_order_acquire);
+    auto diff = static_cast<std::ptrdiff_t>(sequence) -
+                static_cast<std::ptrdiff_t>(read_idx + 1);
+    // 当前槽位尚未发布完成,队列为空
+    if (diff < 0) {
       return false;
-    *message = static_cast<EventMessage *>(
-        queue_[read_idx & (size_ - 1)].load(std::memory_order_relaxed));
-    read_index_.store(read_idx + 1, std::memory_order_release);
+    }
+    *message = slot->message;
+    slot->message = nullptr;
+    read_index_.store(read_idx + 1, std::memory_order_relaxed);
+    slot->sequence.store(read_idx + size_, std::memory_order_release);
     return true;
   }
 
 private:
   alignas(kCacheLineSize) std::atomic<std::size_t> write_index_{0};
   alignas(kCacheLineSize) std::atomic<std::size_t> read_index_{0};
-  alignas(kCacheLineSize) std::atomic<void *> *queue_;
+  alignas(kCacheLineSize) Slot *queue_{nullptr};
   std::size_t size_;
+  std::size_t mask_;
 };
 
 template <std::size_t N> class WorkStealingQueue {

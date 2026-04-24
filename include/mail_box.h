@@ -17,6 +17,12 @@ namespace ac {
 // nullptr时,被动唤醒,需要使用mail_box_->try_dequeue()获取最新事件消息
 class MailBox {
 private:
+  enum class WaitState : uint8_t {
+    kRunning = 0,
+    kWaiting,
+    kScheduled,
+  };
+
   struct MailBoxAwaiter {
     MailBoxAwaiter(MailBox &mail) : mail_(mail), msg_(nullptr) {}
     bool await_ready() noexcept { return mail_.mailbox_.try_dequeue(&msg_); }
@@ -27,10 +33,28 @@ private:
       if (mail_.mailbox_.try_dequeue(&msg_)) {
         return false;
       }
-      mail_.handle_.store(handle.address(), std::memory_order_release);
+      mail_.waiter_.store(handle.address(), std::memory_order_relaxed);
+      mail_.state_.store(WaitState::kWaiting, std::memory_order_release);
+      if (!mail_.mailbox_.try_dequeue(&msg_)) {
+        return true;
+      }
+
+      WaitState expected = WaitState::kWaiting;
+      if (mail_.state_.compare_exchange_strong(expected, WaitState::kRunning,
+                                               std::memory_order_acq_rel,
+                                               std::memory_order_acquire)) {
+        mail_.waiter_.store(nullptr, std::memory_order_relaxed);
+        return false;
+      }
       return true;
     }
-    EventMessage *await_resume() noexcept { return msg_; }
+    EventMessage *await_resume() noexcept {
+      mail_.state_.store(WaitState::kRunning, std::memory_order_release);
+      if (msg_ != nullptr) {
+        mail_.solved_nr_.fetch_add(1, std::memory_order_relaxed);
+      }
+      return msg_;
+    }
 
     MailBox &mail_;
     EventMessage *msg_;
@@ -39,8 +63,14 @@ private:
   // 丢弃的事件消息数量
   std::atomic<std::size_t> discarded_nr_{0};
   std::atomic<std::size_t> solved_nr_{0};
+  // 成功将等待中的消费者协程重新放回调度器的次数
+  std::atomic<std::size_t> scheduled_nr_{0};
+  // 已经处于scheduled状态时再次尝试唤醒,被状态机合并掉的次数
+  std::atomic<std::size_t> duplicate_schedule_nr_{0};
   // 因等待收件箱而挂起的协程句柄
-  std::atomic<void *> handle_{nullptr};
+  std::atomic<void *> waiter_{nullptr};
+  // 当前邮箱消费者协程状态,用于保证同一协程只会被调度一次
+  std::atomic<WaitState> state_{WaitState::kRunning};
   // 收件箱
   MailQueue mailbox_;
 
@@ -61,6 +91,12 @@ public:
   }
   inline std::size_t get_solved_count() const {
     return solved_nr_.load(std::memory_order_relaxed);
+  }
+  inline std::size_t get_schedule_count() const {
+    return scheduled_nr_.load(std::memory_order_relaxed);
+  }
+  inline std::size_t get_duplicate_schedule_count() const {
+    return duplicate_schedule_nr_.load(std::memory_order_relaxed);
   }
 };
 
