@@ -3,6 +3,7 @@
 #ifndef AC_INCLUDE_PLUGIN_MANAGER_H_
 #define AC_INCLUDE_PLUGIN_MANAGER_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -35,20 +36,22 @@ public:
     return plug_manager;
   }
 
-  ac_config &GetConfigInfo() { return config_info_; }
+  std::shared_ptr<ac_config> GetConfigInfo() { return config_info_; }
 
-  void UpdateConfig();
+  bool UpdateConfig();
 
 private:
   PluginManager() {
-    if (!__config_loader()) {
-      LOG_E("failed to loaded config file.");
+    config_info_ = __config_loader();
+    if (!config_info_) {
+      LOG_E("failed to load config file.");
       std::terminate();
     }
   };
 
-  bool __config_loader();
-  ac_config config_info_;
+  std::shared_ptr<ac_config> __config_loader();
+
+  std::shared_ptr<ac_config> config_info_;
 };
 
 } // namespace ac

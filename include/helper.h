@@ -13,7 +13,6 @@
 #include <quill/Logger.h>
 #ifdef DEBUG_MODE
 #include <quill/sinks/ConsoleSink.h>
-#include <quill/std/Vector.h>
 #else
 #include <quill/sinks/FileSink.h>
 #endif
@@ -45,16 +44,19 @@ public:
 private:
   Logger() {
     quill::BackendOptions backend_options;
-    backend_options.sleep_duration =
-        std::chrono::microseconds(100);             // 无日志时sleep 10 ms
-    backend_options.enable_yield_when_idle = false; // 关闭 yield
+    backend_options.log_timestamp_ordering_grace_period =
+        std::chrono::milliseconds(2);
     quill::Backend::start(backend_options);
 #ifdef DEBUG_MODE
     auto console_sink =
         quill::Frontend::create_or_get_sink<quill::ConsoleSink>("sink_id_1");
-    logger_ =
-        quill::Frontend::create_or_get_logger("root", std::move(console_sink));
-    logger_->set_log_level(quill::LogLevel::TraceL3);
+    logger_ = quill::Frontend::create_or_get_logger(
+        "root", std::move(console_sink),
+        quill::PatternFormatterOptions{
+            "%(time) [%(thread_name)] [%(file_name)] [%(log_level)] %(message)",
+            "%Y-%m-%d %H:%M:%S.%Qms", quill::Timezone::LocalTime});
+
+    logger_->set_log_level(quill::LogLevel::Debug);
 #else
     auto file_sink = quill::Frontend::create_or_get_sink<quill::FileSink>(
         log_file,
@@ -67,8 +69,11 @@ private:
         }(),
         quill::FileEventNotifier{});
 
-    logger_ =
-        quill::Frontend::create_or_get_logger("root", std::move(file_sink));
+    logger_ = quill::Frontend::create_or_get_logger(
+        "root", std::move(file_sink),
+        quill::PatternFormatterOptions{
+            "%(time) [%(thread_name)] [%(file_name)] [%(log_level)] %(message)",
+            "%Y-%m-%d %H:%M:%S.%Qms", quill::Timezone::LocalTime});
     logger_->set_log_level(quill::LogLevel::Info);
 #endif
   }

@@ -16,45 +16,47 @@
 
 namespace ac {
 
-bool PluginManager::__config_loader() {
-  config_info_.library_path.clear();
-  config_info_.modules.clear();
+std::shared_ptr<ac_config> PluginManager::__config_loader() {
   struct stat config_stat;
   if (stat(kConfigPath, &config_stat)) {
     LOG_E("Failed to load config file, error: {}", strerror(errno));
-    return false;
+    return nullptr;
   }
   if (!S_ISREG(config_stat.st_mode)) {
     LOG_E("Failed to load config file, the file is not regular file.");
-    return false;
+    return nullptr;
   }
   int fd = open(kConfigPath, O_RDONLY);
   if (fd < 0) {
     LOG_E("Failed to open config file, error: {}", strerror(errno));
-    return false;
+    return nullptr;
   }
   std::vector<uint8_t> content(static_cast<size_t>(config_stat.st_size));
   if (read(fd, content.data(), static_cast<size_t>(config_stat.st_size)) <= 0) {
     LOG_E("Failed to read config file, error: {}", strerror(errno));
     close(fd);
-    return false;
+    return nullptr;
   }
-  auto read_error = glz::read_toml(config_info_, content);
+  std::shared_ptr<ac_config> new_config = std::make_shared<ac_config>();
+  auto read_error = glz::read_toml(*new_config, content);
   if (read_error) {
     LOG_E("Failed to parse config file, error: {}",
           glz::format_error(read_error, content));
     close(fd);
-    return false;
+    return nullptr;
   }
   close(fd);
-  return true;
+  return new_config;
 }
 
-void PluginManager::UpdateConfig() {
-  if (!__config_loader()) {
-    LOG_E("failed to update config info.");
-    std::terminate();
+bool PluginManager::UpdateConfig() {
+  std::shared_ptr<ac_config> new_config = __config_loader();
+  if (new_config) {
+    config_info_ = std::move(new_config);
+    return true;
   }
+  LOG_E("failed to update config info.");
+  return false;
 }
 
 } // namespace ac

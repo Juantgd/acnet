@@ -99,7 +99,7 @@ void *ActorScheduler::scheduler_thread(void *arg) {
       task = sched->global_queue_.wait_and_pop();
     }
     if (task && !task.done()) {
-      LOG_D("[{}] got the task, task: {}", thread_name, task.address());
+      LOG_D("got the task, task: {}", task.address());
       task.resume();
     }
   }

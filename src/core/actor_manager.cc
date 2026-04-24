@@ -27,6 +27,7 @@ auto ActorManager::__generate_creator(std::string path) {
 LaunchTask ActorManager::__launch_actor(std::string path, std::size_t actor_id,
                                         MailBoxPtr mailbox) {
   ActorModule *actor = nullptr;
+  dlerror();
   void *handle = dlopen(path.c_str(), RTLD_LAZY);
   if (handle) {
     auto create_func = (CreateModuleFunc)dlsym(handle, "CreateModule");
@@ -78,12 +79,12 @@ creator_exit:
 
 void ActorManager::__load_modules() {
   // loading configures and mount module
-  const auto &config = PluginManager::Instance().GetConfigInfo();
-  if (!config.modules.empty()) {
+  auto config = PluginManager::Instance().GetConfigInfo();
+  if (!config->modules.empty()) {
     std::vector<std::coroutine_handle<>> tasks;
-    for (const auto &mod : config.modules) {
+    for (const auto &mod : config->modules) {
       std::string path =
-          std::format("{}/lib{}.so", config.library_path, mod.library_name);
+          std::format("{}/lib{}.so", config->library_path, mod.library_name);
       // print module information
       LOG_I("=========================================");
       LOG_I("module_name: {}", mod.module_name);
@@ -158,12 +159,12 @@ coro_exit:
 
 void ActorManager::__reload_module(std::size_t module_id,
                                    std::string_view module_name) {
-  const auto &config = PluginManager::Instance().GetConfigInfo();
-  if (!config.modules.empty()) {
-    for (const auto &mod : config.modules) {
+  auto config = PluginManager::Instance().GetConfigInfo();
+  if (!config->modules.empty()) {
+    for (const auto &mod : config->modules) {
       if (module_name == mod.module_name) {
         std::string path =
-            std::format("{}/lib{}.so", config.library_path, mod.library_name);
+            std::format("{}/lib{}.so", config->library_path, mod.library_name);
         // print module information
         LOG_I("=========================================");
         LOG_I("module_name: {}", mod.module_name);
@@ -201,12 +202,12 @@ void ActorManager::__reload_module(std::size_t module_id,
 }
 
 void ActorManager::__reload_all_modules() {
-  const auto &config = PluginManager::Instance().GetConfigInfo();
-  if (!config.modules.empty()) {
+  auto config = PluginManager::Instance().GetConfigInfo();
+  if (!config->modules.empty()) {
     std::vector<std::coroutine_handle<>> tasks;
-    for (const auto &mod : config.modules) {
+    for (const auto &mod : config->modules) {
       std::string path =
-          std::format("{}/lib{}.so", config.library_path, mod.library_name);
+          std::format("{}/lib{}.so", config->library_path, mod.library_name);
       // print module information
       LOG_I("=========================================");
       LOG_I("module_name: {}", mod.module_name);
@@ -215,22 +216,26 @@ void ActorManager::__reload_all_modules() {
 
       auto creator_func = __generate_creator(std::move(path));
 
+      bool is_cached = false;
       for (auto it = childrens_.begin(); it != childrens_.end(); ++it) {
         if (it->second.module_name == mod.module_name) {
           it->second.creator = std::move(creator_func);
           auto module_task =
               it->second.creator(it->second.actor_id, it->second.mailbox);
           tasks.push_back(module_task.handle_);
-        } else {
-          ActorMetaData metadata{.actor_id = generate_unique_id(),
-                                 .mailbox = std::make_shared<MailBox>(),
-                                 .module_name = mod.module_name,
-                                 .creator = std::move(creator_func)};
-          auto module_task =
-              metadata.creator(metadata.actor_id, metadata.mailbox);
-          childrens_.emplace(metadata.actor_id, std::move(metadata));
-          tasks.push_back(module_task.handle_);
+          is_cached = true;
+          break;
         }
+      }
+      if (!is_cached) {
+        ActorMetaData metadata{.actor_id = generate_unique_id(),
+                               .mailbox = std::make_shared<MailBox>(),
+                               .module_name = mod.module_name,
+                               .creator = std::move(creator_func)};
+        auto module_task =
+            metadata.creator(metadata.actor_id, metadata.mailbox);
+        childrens_.emplace(metadata.actor_id, std::move(metadata));
+        tasks.push_back(module_task.handle_);
       }
     }
     ActorScheduler::Instance().EnqueueBatch(tasks);
@@ -292,7 +297,10 @@ bool ActorManager::__search_module_and_remove(std::string_view module_name) {
 }
 
 void ActorManager::__handle_cmd_reload(EventMessage *message) {
-  PluginManager::Instance().UpdateConfig();
+  if (!PluginManager::Instance().UpdateConfig()) {
+    LOG_E("failed to reload modules.");
+    return;
+  }
   if (!__search_module_and_remove(message->get<std::string>())) {
     // module not found
     __reload_module(0, message->get<std::string>());
@@ -315,7 +323,6 @@ void ActorManager::__handle_cmd_remove(EventMessage *message) {
 void ActorManager::__handle_event_exit(EventMessage *message) {
   bool reload_flag = false;
   if (!pending_reload_.empty()) {
-    LOG_D("pedding reload: {}", pending_reload_);
     for (std::size_t i = 0; i != pending_reload_.size(); ++i) {
       if (message->sender_id_ == pending_reload_[i]) {
         std::swap(pending_reload_.back(), pending_reload_[i]);

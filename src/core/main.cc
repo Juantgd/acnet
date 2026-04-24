@@ -97,39 +97,55 @@ static int parse_command_line(int argc, char *argv[]) {
   if (command) {
     if (mkdir_if_not_exists("logs")) {
       FILE *control_file = fopen(kControlFile, "w");
-      if (strcmp(command, "stop") == 0) {
-        fprintf(control_file, "stop");
-      } else if (strcmp(command, "reload") == 0) {
-        if (optind < argc) {
-          fprintf(control_file, "reload %s", argv[optind]);
-        } else {
-          fprintf(control_file, "reload all");
-        }
-      } else if (strcmp(command, "remove") == 0) {
-        if (optind < argc) {
-          fprintf(control_file, "remove %s", argv[optind]);
+      if (control_file) {
+        if (strcmp(command, "stop") == 0) {
+          fprintf(control_file, "stop");
+        } else if (strcmp(command, "reload") == 0) {
+          if (optind < argc) {
+            fprintf(control_file, "reload %s", argv[optind]);
+          } else {
+            fprintf(control_file, "reload all");
+          }
+        } else if (strcmp(command, "remove") == 0) {
+          if (optind < argc) {
+            fprintf(control_file, "remove %s", argv[optind]);
+          } else {
+            fclose(control_file);
+            fprintf(stderr,
+                    "command remove required an argument as module name\n");
+            return -1;
+          }
         } else {
           fclose(control_file);
-          fprintf(stderr,
-                  "command remove required an argument as module name\n");
+          fprintf(stderr, "unsupported command: %s\n", command);
           return -1;
         }
-      } else {
         fclose(control_file);
-        fprintf(stderr, "unsupported command: %s\n", command);
-        return -1;
+        char pid_str[32];
+        FILE *pid_file = fopen(kPidFile, "r");
+        if (pid_file == NULL) {
+          fprintf(stderr, "pid file: fopen() failed, error: %s\n",
+                  strerror(errno));
+          exit(EXIT_FAILURE);
+        }
+        if (fgets(pid_str, 32, pid_file) == NULL) {
+          if (ferror(pid_file)) {
+            fprintf(stderr, "pid file: fgets() failed, error: %s\n",
+                    strerror(errno));
+          } else {
+            fprintf(stderr, "pid file: fgets() failed, empty file\n");
+          }
+          fclose(pid_file);
+          exit(EXIT_FAILURE);
+        }
+        fclose(pid_file);
+        pid_t acnet_pid = static_cast<pid_t>(strtol(pid_str, NULL, 10));
+        kill(acnet_pid, SIGHUP);
+      } else {
+        fprintf(stderr, "control file: fopen() failed. error: %s\n",
+                strerror(errno));
+        exit(EXIT_FAILURE);
       }
-      fclose(control_file);
-      char pid_str[32];
-      FILE *pid_file = fopen(kPidFile, "r");
-      if (pid_file == NULL) {
-        fprintf(stderr, "fopen() failed, error: %s\n", strerror(errno));
-        return -1;
-      }
-      fgets(pid_str, 32, pid_file);
-      fclose(pid_file);
-      pid_t acnet_pid = static_cast<pid_t>(strtol(pid_str, NULL, 10));
-      kill(acnet_pid, SIGHUP);
     } else {
       exit(EXIT_FAILURE);
     }
@@ -142,7 +158,10 @@ static void sigal_handle(int sig_num) {
   char cmd[64];
   FILE *control_file = fopen(kControlFile, "r");
   if (control_file) {
-    fgets(cmd, 64, control_file);
+    if (fgets(cmd, 64, control_file) == NULL) {
+      fclose(control_file);
+      return;
+    }
     fclose(control_file);
     delete_if_exists(kControlFile);
     char *pos = strchr(cmd, ' ');
