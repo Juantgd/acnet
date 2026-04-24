@@ -6,8 +6,8 @@
 #include <functional>
 #include <latch>
 #include <string_view>
-#include <unordered_set>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "mail_box.h"
 #include "task.h"
@@ -32,6 +32,8 @@ public:
 
   void ReloadModule(std::string_view module_name);
 
+  void RemoveModule(std::string_view module_name);
+
   void Shutdown();
 
 private:
@@ -47,6 +49,11 @@ private:
   void __reload_module(std::size_t module_id, std::string_view module_name);
 
   void __reload_all_modules();
+
+  void __handle_cmd_reload(EventMessage *message);
+  void __handle_cmd_remove(EventMessage *message);
+  void __handle_event_exit(EventMessage *message);
+  void __handle_event_crash(EventMessage *message);
 
   bool is_running_{false};
   bool reload_all_flag_{false};

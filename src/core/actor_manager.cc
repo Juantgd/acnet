@@ -62,7 +62,7 @@ LaunchTask ActorManager::__launch_actor(std::string path, std::size_t actor_id,
     }
     if (actor) {
       actor->Uninit(mailbox);
-      destroy_func(actor);
+      destroy_func(&actor);
     }
     dlclose(handle);
   } else {
@@ -71,7 +71,7 @@ LaunchTask ActorManager::__launch_actor(std::string path, std::size_t actor_id,
 creator_exit:
   // send exited message to parent mailbox
   EventMessage *msg =
-      new EventMessage(1, EventType::kEventStatModuleExited, actor_id);
+      new EventMessage(1, EventType::kEventModuleExited, actor_id);
   this->mailbox_->Send(msg);
   co_await std::suspend_never();
 }
@@ -127,72 +127,25 @@ LaunchTask ActorManager::RunCoroutine() {
       continue;
     }
     switch (msg->type_) {
-    case EventType::kEventCmdModuleReload: {
-      PluginManager::Instance().UpdateConfig();
-      if (!__search_module_and_remove(msg->get<std::string>())) {
-        // module not found
-        __reload_module(0, msg->get<std::string>());
-      }
-      break;
-    }
-    case EventType::kEventCrashReport: {
-      auto it = childrens_.find(msg->sender_id_);
-      if (it != childrens_.end()) {
-        LOG_E("received module crash report, message: {}",
-              msg->get<std::string>());
-        pending_restart_.insert(msg->sender_id_);
-      } else {
-        LOG_W("Actor Not found, actor id: {}", msg->sender_id_);
-      }
-      break;
-    }
-    case EventType::kEventStatModuleExited: {
-      bool reload_flag = false;
-      if (!pending_reload_.empty()) {
-        LOG_D("pedding reload: {}", pending_reload_);
-        for (std::size_t i = 0; i != pending_reload_.size(); ++i) {
-          if (msg->sender_id_ == pending_reload_[i]) {
-            std::swap(pending_reload_.back(), pending_reload_[i]);
-            pending_reload_.pop_back();
-            reload_flag = true;
-            break;
-          }
-        }
-      }
-      auto it = childrens_.find(msg->sender_id_);
-      if (it == childrens_.end()) {
-        LOG_E("failed to unmount module");
-        break;
-      }
-      if (reload_flag) {
-        pending_restart_.erase(msg->sender_id_);
-        // reload module, load new library, reuse mailbox
-        if (reload_all_flag_) {
-          if (pending_reload_.empty()) {
-            LOG_I("all modules reloading...");
-            __reload_all_modules();
-          }
-        } else {
-          LOG_I("module: {} reloading, id: {}", it->second.module_name,
-                msg->sender_id_);
-          __reload_module(msg->sender_id_, it->second.module_name);
-        }
-      } else if (pending_restart_.erase(msg->sender_id_) != 0) {
-        LOG_I("module: {} crashed, restarting, id: {}", it->second.module_name,
-              msg->sender_id_);
-        auto task = it->second.creator(it->second.actor_id, it->second.mailbox);
-        ActorScheduler::Instance().Enqueue(task.handle_);
-      } else {
-        // not reload, remove module
-        LOG_I("module: {} exited, id: {}, modules: {}", it->second.module_name,
-              msg->sender_id_, childrens_.size());
-        childrens_.erase(it);
-      }
-      break;
-    }
     case EventType::kEventCmdExit: {
       event_message_release(&msg);
       goto coro_exit;
+    }
+    case EventType::kEventCmdModuleReload: {
+      __handle_cmd_reload(msg);
+      break;
+    }
+    case EventType::kEventCmdModuleRemove: {
+      __handle_cmd_remove(msg);
+      break;
+    }
+    case EventType::kEventCrashReport: {
+      __handle_event_crash(msg);
+      break;
+    }
+    case EventType::kEventModuleExited: {
+      __handle_event_exit(msg);
+      break;
     }
     default:
       LOG_W("Unsupport event type: {}", static_cast<int>(msg->type_));
@@ -284,6 +237,34 @@ void ActorManager::__reload_all_modules() {
   }
 }
 
+void ActorManager::ReloadModule(std::string_view module_name) {
+  if (module_name == "all") {
+    LOG_I("try to reload all modules");
+  } else {
+    LOG_I("try to reload module: {}", module_name);
+  }
+  EventMessage *msg =
+      new EventMessage(1, ac::EventType::kEventCmdModuleReload, 0);
+  msg->set(std::string(module_name));
+  mailbox_->Send(msg);
+}
+
+void ActorManager::RemoveModule(std::string_view module_name) {
+  LOG_I("try to remove module: {}", module_name);
+  EventMessage *msg =
+      new EventMessage(1, ac::EventType::kEventCmdModuleRemove, 0);
+  msg->set(std::string(module_name));
+  mailbox_->Send(msg);
+}
+
+void ActorManager::Shutdown() {
+  if (is_running_) {
+    is_running_ = false;
+    EventMessage *msg = new EventMessage(1, EventType::kEventCmdExit, 0);
+    mailbox_->Send(msg);
+  }
+}
+
 bool ActorManager::__search_module_and_remove(std::string_view module_name) {
   reload_all_flag_ = module_name == "all" ? true : false;
   EventMessage *message =
@@ -310,23 +291,79 @@ bool ActorManager::__search_module_and_remove(std::string_view module_name) {
   return false;
 }
 
-void ActorManager::ReloadModule(std::string_view module_name) {
-  if (module_name == "all") {
-    LOG_I("try to reload all modules");
-  } else {
-    LOG_I("try to reload module: {}", module_name);
+void ActorManager::__handle_cmd_reload(EventMessage *message) {
+  PluginManager::Instance().UpdateConfig();
+  if (!__search_module_and_remove(message->get<std::string>())) {
+    // module not found
+    __reload_module(0, message->get<std::string>());
   }
-  EventMessage *msg =
-      new EventMessage(1, ac::EventType::kEventCmdModuleReload, 0);
-  msg->set(std::string(module_name));
-  mailbox_->Send(msg);
 }
 
-void ActorManager::Shutdown() {
-  if (is_running_) {
-    is_running_ = false;
-    EventMessage *msg = new EventMessage(1, EventType::kEventCmdExit, 0);
-    mailbox_->Send(msg);
+void ActorManager::__handle_cmd_remove(EventMessage *message) {
+  for (auto it = childrens_.begin(); it != childrens_.end(); ++it) {
+    if (it->second.module_name == message->get<std::string>()) {
+      LOG_I("found the module: {}, prepare remove", it->second.module_name);
+      EventMessage *msg =
+          new EventMessage(1, EventType::kEventCmdModuleStop, 0);
+      it->second.mailbox->Send(msg);
+      return;
+    }
+  }
+  LOG_W("module: {} not found", message->get<std::string>());
+}
+
+void ActorManager::__handle_event_exit(EventMessage *message) {
+  bool reload_flag = false;
+  if (!pending_reload_.empty()) {
+    LOG_D("pedding reload: {}", pending_reload_);
+    for (std::size_t i = 0; i != pending_reload_.size(); ++i) {
+      if (message->sender_id_ == pending_reload_[i]) {
+        std::swap(pending_reload_.back(), pending_reload_[i]);
+        pending_reload_.pop_back();
+        reload_flag = true;
+        break;
+      }
+    }
+  }
+  auto it = childrens_.find(message->sender_id_);
+  if (it == childrens_.end()) [[unlikely]] {
+    LOG_E("failed to unmount module");
+    return;
+  }
+  if (reload_flag) {
+    pending_restart_.erase(message->sender_id_);
+    // reload module, load new library, reuse mailbox
+    if (reload_all_flag_) {
+      if (pending_reload_.empty()) {
+        LOG_I("all modules reloading...");
+        __reload_all_modules();
+      }
+    } else {
+      LOG_I("module: {} reloading, id: {}", it->second.module_name,
+            message->sender_id_);
+      __reload_module(message->sender_id_, it->second.module_name);
+    }
+  } else if (pending_restart_.erase(message->sender_id_) != 0) {
+    LOG_I("module: {} crashed, restarting, id: {}", it->second.module_name,
+          message->sender_id_);
+    auto task = it->second.creator(it->second.actor_id, it->second.mailbox);
+    ActorScheduler::Instance().Enqueue(task.handle_);
+  } else {
+    // not reload, remove module
+    LOG_I("module: {} exited, id: {}, modules: {}", it->second.module_name,
+          message->sender_id_, childrens_.size() - 1);
+    childrens_.erase(it);
+  }
+}
+
+void ActorManager::__handle_event_crash(EventMessage *message) {
+  auto it = childrens_.find(message->sender_id_);
+  if (it != childrens_.end()) {
+    LOG_E("received module crash report, message: {}",
+          message->get<std::string>());
+    pending_restart_.insert(message->sender_id_);
+  } else {
+    LOG_W("Actor Not found, actor id: {}", message->sender_id_);
   }
 }
 

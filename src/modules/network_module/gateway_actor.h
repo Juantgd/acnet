@@ -25,7 +25,7 @@ private:
 extern "C" {
 ActorModule *CreateModule(std::size_t actor_id, MailBoxPtr parent_mailbox);
 
-void DestroyModule(ActorModule *module);
+void DestroyModule(ActorModule **module);
 }
 
 }; // namespace ac

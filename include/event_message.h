@@ -17,8 +17,9 @@ enum class EventType {
   kEventCmdExit,
   kEventCmdModuleStop,
   kEventCmdModuleReload,
+  kEventCmdModuleRemove,
 
-  kEventStatModuleExited,
+  kEventModuleExited,
 
   kEventCrashReport,
 };

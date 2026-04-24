@@ -10,12 +10,16 @@ thread_local std::unordered_map<EventType, std::vector<MailBoxPtr>>
 thread_local std::size_t ActorEventBus::local_version = 0;
 
 void ActorEventBus::Subscribe(EventType type, MailBoxPtr mailbox) {
+  LOG_D("Subscribe event, type: {}, mailbox address: {}",
+        static_cast<int>(type), (void *)mailbox.get());
   std::lock_guard<std::mutex> lock(mutex_);
   event_bus_[type].push_back(mailbox);
   version_.fetch_add(1, std::memory_order_release);
 }
 
 void ActorEventBus::Unsubscribe(EventType type, MailBoxPtr mailbox) {
+  LOG_D("Unsubscribe event, type: {}, mailbox address: {}",
+        static_cast<int>(type), (void *)mailbox.get());
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = event_bus_.find(type);
   if (it != event_bus_.end()) {

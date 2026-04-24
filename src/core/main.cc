@@ -19,13 +19,11 @@ namespace {
 constexpr static const char *kControlFile = "logs/acnet.control";
 constexpr static const char *kPidFile = "logs/acnet.pid";
 
-static const char short_options[] = ":hr:s";
+static const char short_options[] = ":hs:";
 
-static const struct option long_options[] = {
-    {"help", no_argument, NULL, 'h'},
-    {"reload", optional_argument, NULL, 'r'},
-    {"stop", no_argument, NULL, 's'},
-    {0, 0, 0, 0}};
+static const struct option long_options[] = {{"help", no_argument, NULL, 'h'},
+                                             {"signal", no_argument, NULL, 's'},
+                                             {0, 0, 0, 0}};
 
 } // namespace
 
@@ -52,7 +50,7 @@ static void delete_if_exists(const char *filepath) {
     return;
   }
   if (!S_ISREG(s.st_mode)) {
-    fprintf(stderr, "not regular file.");
+    fprintf(stderr, "not regular file.\n");
     return;
   }
   if (unlink(filepath) == -1) {
@@ -66,15 +64,15 @@ static void print_usage(const char *file_name) {
           "Version: %s\n\n"
           "Options:\n"
           "-h | --help                Print this message\n"
-          "-r | --reload module       Reload the specified module, all to "
-          "reload all modules\n"
-          "-s | --stop                Stop the service running\n"
+          "-s | --signal              Send signal to the service, stop | "
+          "reload [module] | remove module\n"
           "",
           file_name, ACNET_VERSION);
 }
 
 static int parse_command_line(int argc, char *argv[]) {
   int opt;
+  const char *command = nullptr;
   while ((opt = getopt_long(argc, argv, short_options, long_options, NULL)) !=
          -1) {
     switch (opt) {
@@ -82,39 +80,58 @@ static int parse_command_line(int argc, char *argv[]) {
       print_usage(argv[0]);
       return 0;
     }
-    case 'r':
     case 's': {
-      if (mkdir_if_not_exists("logs")) {
-        FILE *control_file = fopen(kControlFile, "w");
-        if (opt == 'r') {
-          fprintf(control_file, "reload %s", optarg);
-        } else {
-          fprintf(control_file, "stop");
-        }
-        fclose(control_file);
-        char pid_str[32];
-        FILE *pid_file = fopen(kPidFile, "r");
-        if (pid_file == NULL) {
-          fprintf(stderr, "fopen() failed, error: %s\n", strerror(errno));
-          return -1;
-        }
-        fgets(pid_str, 32, pid_file);
-        fclose(pid_file);
-        pid_t acnet_pid = static_cast<pid_t>(strtol(pid_str, NULL, 10));
-        kill(acnet_pid, SIGHUP);
-      } else {
-        exit(EXIT_FAILURE);
-      }
-      return 0;
+      command = optarg;
+      break;
     }
     case ':': {
-      fprintf(stderr, "选项 -%c 缺少必选参数\n", optopt);
+      fprintf(stderr, "option -%c required arguments\n", optopt);
       return -1;
     }
     case '?': {
-      fprintf(stderr, "未知选项: -%c\n", optopt);
+      fprintf(stderr, "unknown arguments: -%c\n", optopt);
       return -1;
     }
+    }
+  }
+  if (command) {
+    if (mkdir_if_not_exists("logs")) {
+      FILE *control_file = fopen(kControlFile, "w");
+      if (strcmp(command, "stop") == 0) {
+        fprintf(control_file, "stop");
+      } else if (strcmp(command, "reload") == 0) {
+        if (optind < argc) {
+          fprintf(control_file, "reload %s", argv[optind]);
+        } else {
+          fprintf(control_file, "reload all");
+        }
+      } else if (strcmp(command, "remove") == 0) {
+        if (optind < argc) {
+          fprintf(control_file, "remove %s", argv[optind]);
+        } else {
+          fclose(control_file);
+          fprintf(stderr,
+                  "command remove required an argument as module name\n");
+          return -1;
+        }
+      } else {
+        fclose(control_file);
+        fprintf(stderr, "unsupported command: %s\n", command);
+        return -1;
+      }
+      fclose(control_file);
+      char pid_str[32];
+      FILE *pid_file = fopen(kPidFile, "r");
+      if (pid_file == NULL) {
+        fprintf(stderr, "fopen() failed, error: %s\n", strerror(errno));
+        return -1;
+      }
+      fgets(pid_str, 32, pid_file);
+      fclose(pid_file);
+      pid_t acnet_pid = static_cast<pid_t>(strtol(pid_str, NULL, 10));
+      kill(acnet_pid, SIGHUP);
+    } else {
+      exit(EXIT_FAILURE);
     }
   }
   return 0;
@@ -122,10 +139,10 @@ static int parse_command_line(int argc, char *argv[]) {
 
 static void sigal_handle(int sig_num) {
   (void)sig_num;
-  char cmd[32];
+  char cmd[64];
   FILE *control_file = fopen(kControlFile, "r");
   if (control_file) {
-    fgets(cmd, 32, control_file);
+    fgets(cmd, 64, control_file);
     fclose(control_file);
     delete_if_exists(kControlFile);
     char *pos = strchr(cmd, ' ');
@@ -133,6 +150,8 @@ static void sigal_handle(int sig_num) {
       *pos = '\0';
       if (strcmp(cmd, "reload") == 0) {
         manager.ReloadModule(pos + 1);
+      } else if (strcmp(cmd, "remove") == 0) {
+        manager.RemoveModule(pos + 1);
       }
     } else if (strcmp(cmd, "stop") == 0) {
       manager.Shutdown();
@@ -149,7 +168,7 @@ int main(int argc, char *argv[]) {
   }
 
   if (!mkdir_if_not_exists("logs")) {
-    fprintf(stderr, "failed to create directory: ./logs/");
+    fprintf(stderr, "failed to create directory: ./logs/\n");
     exit(EXIT_FAILURE);
   }
 

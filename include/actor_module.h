@@ -39,7 +39,7 @@ protected:
 typedef ActorModule *(*CreateModuleFunc)(std::size_t id,
                                          MailBoxPtr parent_mailbox);
 
-typedef void (*DestroyModuleFunc)(ActorModule *module);
+typedef void (*DestroyModuleFunc)(ActorModule **module);
 
 } // namespace ac
 

@@ -20,9 +20,6 @@ void GateWayActor::Uninit(MailBoxPtr &mailbox) {
 
 Task<void> GateWayActor::RunCoroutine(MailBoxPtr &mailbox) {
   LOG_I("[NetActor id: {}] module starting...", actor_id_);
-  std::this_thread::sleep_for(std::chrono::seconds(5));
-  // test coroutine crashed restart
-  throw std::runtime_error("boom!boom!boom!");
   while (true) {
     msg_ = co_await mailbox->Receive();
     if (!msg_ && !mailbox->try_receive(&msg_)) [[unlikely]] {
@@ -51,10 +48,10 @@ ActorModule *CreateModule(std::size_t actor_id, MailBoxPtr parent_mailbox) {
   return new GateWayActor(actor_id, parent_mailbox);
 }
 
-void DestroyModule(ActorModule *module) {
-  if (module) {
-    delete module;
-    module = nullptr;
+void DestroyModule(ActorModule **module) {
+  if (*module) {
+    delete *module;
+    *module = nullptr;
   }
 }
 }
