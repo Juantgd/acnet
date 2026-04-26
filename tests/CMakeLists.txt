@@ -13,3 +13,17 @@ add_test(
   NAME acnet_mail_stress_test
   COMMAND $<TARGET_FILE:acnet_mail_stress_test>
 )
+
+add_executable(acnet_work_stealing_queue_stress_test
+  work_stealing_queue_stress_test.cc
+)
+
+target_link_libraries(acnet_work_stealing_queue_stress_test
+  PRIVATE
+    corelib
+)
+
+add_test(
+  NAME acnet_work_stealing_queue_stress_test
+  COMMAND $<TARGET_FILE:acnet_work_stealing_queue_stress_test>
+)

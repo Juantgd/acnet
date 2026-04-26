@@ -8,6 +8,7 @@
 #include <condition_variable>
 #include <coroutine>
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <mutex>
 #include <vector>
@@ -126,6 +127,15 @@ public:
     return true;
   }
 
+  bool can_dequeue() const {
+    std::size_t read_idx = read_index_.load(std::memory_order_relaxed);
+    const Slot *slot = &queue_[read_idx & mask_];
+    std::size_t sequence = slot->sequence.load(std::memory_order_acquire);
+    auto diff = static_cast<std::ptrdiff_t>(sequence) -
+                static_cast<std::ptrdiff_t>(read_idx + 1);
+    return diff >= 0;
+  }
+
 private:
   alignas(kCacheLineSize) std::atomic<std::size_t> write_index_{0};
   alignas(kCacheLineSize) std::atomic<std::size_t> read_index_{0};
@@ -139,7 +149,11 @@ template <std::size_t N> class WorkStealingQueue {
   static constexpr std::size_t kMask = N - 1;
 
 public:
-  WorkStealingQueue() = default;
+  WorkStealingQueue() {
+    for (auto &slot : queue_) {
+      slot.store(nullptr, std::memory_order_relaxed);
+    }
+  }
   ~WorkStealingQueue() = default;
 
   bool push(const std::coroutine_handle<> &handle) {
@@ -189,8 +203,8 @@ public:
     std::size_t tp = top_.load(std::memory_order_acquire);
     std::atomic_thread_fence(std::memory_order_seq_cst);
     std::size_t bt = bottom_.load(std::memory_order_acquire);
-    // 队列不为空
-    if (tp < bt) {
+    // 与pop保持一致,当owner在空队列上预减bottom时,这里需要按有符号值判断
+    if (static_cast<std::int64_t>(tp) < static_cast<std::int64_t>(bt)) {
       void *ptr = queue_[tp & kMask].load(std::memory_order_relaxed);
       if (!top_.compare_exchange_strong(tp, tp + 1, std::memory_order_seq_cst,
                                         std::memory_order_relaxed)) {

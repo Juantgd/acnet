@@ -14,7 +14,16 @@ MailBox::~MailBox() {
   }
 }
 
-MailBox::MailBoxAwaiter MailBox::Receive() { return MailBoxAwaiter(*this); }
+MailBox::WaitAwaiter MailBox::Wait() { return WaitAwaiter(*this); }
+
+void MailBox::ArmConsumer(std::coroutine_handle<> handle) {
+  consumer_.store(handle.address(), std::memory_order_relaxed);
+  scheduled_.store(true, std::memory_order_release);
+}
+
+void MailBox::MarkRunning() {
+  scheduled_.store(true, std::memory_order_release);
+}
 
 bool MailBox::try_receive(EventMessage **message) {
   bool result = mailbox_.try_dequeue(message);
@@ -26,21 +35,12 @@ bool MailBox::try_receive(EventMessage **message) {
 
 void MailBox::Send(EventMessage *message) {
   if (mailbox_.try_enqueue(message)) {
-    WaitState expected = WaitState::kWaiting;
-    if (state_.compare_exchange_strong(expected, WaitState::kScheduled,
-                                       std::memory_order_acq_rel,
-                                       std::memory_order_acquire)) {
-      // 独占式获取协程句柄,仅允许一个发送线程把等待中的协程重新放回调度队列
+    if (!scheduled_.exchange(true, std::memory_order_acq_rel)) {
       auto handle = std::coroutine_handle<>::from_address(
-          waiter_.exchange(nullptr, std::memory_order_acq_rel));
+          consumer_.load(std::memory_order_acquire));
       if (handle && !handle.done()) {
-        scheduled_nr_.fetch_add(1, std::memory_order_relaxed);
         ActorScheduler::Instance().Enqueue(handle);
-      } else {
-        state_.store(WaitState::kRunning, std::memory_order_release);
       }
-    } else if (expected == WaitState::kScheduled) {
-      duplicate_schedule_nr_.fetch_add(1, std::memory_order_relaxed);
     }
   } else {
     // drop and decrease reference count

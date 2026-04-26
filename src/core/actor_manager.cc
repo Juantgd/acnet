@@ -26,6 +26,12 @@ auto ActorManager::__generate_creator(std::string path) {
 
 LaunchTask ActorManager::__launch_actor(std::string path, std::size_t actor_id,
                                         MailBoxPtr mailbox) {
+  // TODO: 迁移RunCoroutine到此处，不提供虚函数接口给继承了ActorModule的模块
+  // 仅提供ProcessEvent虚函数接口，子模块只需要覆写该接口处理事件消息即可，
+  // 无须操心mailbox的接受、挂起等实施细节。
+  // 需要重写restart拉起崩溃模块，使其与reload功能不重复，目前restart拉起崩溃模块时依然会
+  // 重新调用dlopen去重新加载动态库，这个功能应该由reload负责，而不是restart，重启崩溃模块时
+  // 只需要重新创建一个协程即可，无需重复加载/卸载动态库。
   ActorModule *actor = nullptr;
   dlerror();
   void *handle = dlopen(path.c_str(), RTLD_LAZY);
@@ -110,6 +116,7 @@ void ActorManager::__load_modules() {
 void ActorManager::EventLoop() {
   is_running_ = true;
   auto event_loop = RunCoroutine();
+  mailbox_->ArmConsumer(event_loop.handle_);
   ActorScheduler::Instance().Enqueue(event_loop.handle_);
 
   __load_modules();
@@ -121,37 +128,38 @@ void ActorManager::EventLoop() {
 }
 
 LaunchTask ActorManager::RunCoroutine() {
-  EventMessage *msg = nullptr;
+  mailbox_->MarkRunning();
   while (true) {
-    msg = co_await mailbox_->Receive();
-    if (!msg && !mailbox_->try_receive(&msg)) [[unlikely]] {
-      continue;
-    }
-    switch (msg->type_) {
-    case EventType::kEventCmdExit: {
+    EventMessage *msg = nullptr;
+    while (mailbox_->try_receive(&msg)) {
+      switch (msg->type_) {
+      case EventType::kEventCmdExit: {
+        event_message_release(&msg);
+        goto coro_exit;
+      }
+      case EventType::kEventCmdModuleReload: {
+        __handle_cmd_reload(msg);
+        break;
+      }
+      case EventType::kEventCmdModuleRemove: {
+        __handle_cmd_remove(msg);
+        break;
+      }
+      case EventType::kEventCrashReport: {
+        __handle_event_crash(msg);
+        break;
+      }
+      case EventType::kEventModuleExited: {
+        __handle_event_exit(msg);
+        break;
+      }
+      default:
+        LOG_W("Unsupport event type: {}", static_cast<int>(msg->type_));
+      }
       event_message_release(&msg);
-      goto coro_exit;
+      msg = nullptr;
     }
-    case EventType::kEventCmdModuleReload: {
-      __handle_cmd_reload(msg);
-      break;
-    }
-    case EventType::kEventCmdModuleRemove: {
-      __handle_cmd_remove(msg);
-      break;
-    }
-    case EventType::kEventCrashReport: {
-      __handle_event_crash(msg);
-      break;
-    }
-    case EventType::kEventModuleExited: {
-      __handle_event_exit(msg);
-      break;
-    }
-    default:
-      LOG_W("Unsupport event type: {}", static_cast<int>(msg->type_));
-    }
-    event_message_release(&msg);
+    co_await mailbox_->Wait();
   }
 coro_exit:
   main_latch_.count_down();

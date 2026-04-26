@@ -144,44 +144,50 @@ struct MailBoxStressState {
 ac::LaunchTask mailbox_consumer(ac::MailBoxPtr mailbox,
                                 MailBoxStressState *state,
                                 std::size_t producers_per_round) {
+  mailbox->MarkRunning();
   while (state->consumed.load(std::memory_order_relaxed) <
          state->total_messages) {
-    ac::EventMessage *message = co_await mailbox->Receive();
-    if (!message && !mailbox->try_receive(&message)) [[unlikely]] {
-      continue;
-    }
-    if (message == nullptr) {
-      std::lock_guard<std::mutex> lock(state->mutex);
-      state->error = "MailBox returned a null message";
-      state->done = true;
-      state->cv.notify_all();
-      goto coro_exit;
-    }
-    if (message->sender_id_ >= state->total_messages) {
-      std::lock_guard<std::mutex> lock(state->mutex);
-      state->error = "MailBox returned bad id";
-      state->done = true;
-      state->cv.notify_all();
-      ac::event_message_release(&message);
-      goto coro_exit;
-    }
-    if (state->seen[message->sender_id_] != 0) {
-      std::lock_guard<std::mutex> lock(state->mutex);
-      state->error = "MailBox duplicated a message";
-      state->done = true;
-      state->cv.notify_all();
-      ac::event_message_release(&message);
-      goto coro_exit;
-    }
+    ac::EventMessage *message = nullptr;
+    while (mailbox->try_receive(&message)) {
+      if (message == nullptr) {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        state->error = "MailBox returned a null message";
+        state->done = true;
+        state->cv.notify_all();
+        goto coro_exit;
+      }
+      if (message->sender_id_ >= state->total_messages) {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        state->error = "MailBox returned bad id";
+        state->done = true;
+        state->cv.notify_all();
+        ac::event_message_release(&message);
+        goto coro_exit;
+      }
+      if (state->seen[message->sender_id_] != 0) {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        state->error = "MailBox duplicated a message";
+        state->done = true;
+        state->cv.notify_all();
+        ac::event_message_release(&message);
+        goto coro_exit;
+      }
 
-    state->seen[message->sender_id_] = 1;
-    std::size_t consumed =
-        state->consumed.fetch_add(1, std::memory_order_relaxed) + 1;
-    ac::event_message_release(&message);
+      state->seen[message->sender_id_] = 1;
+      std::size_t consumed =
+          state->consumed.fetch_add(1, std::memory_order_relaxed) + 1;
+      ac::event_message_release(&message);
+      message = nullptr;
 
-    if (consumed % producers_per_round == 0) {
-      state->phase.fetch_add(1, std::memory_order_release);
+      if (consumed % producers_per_round == 0) {
+        state->phase.fetch_add(1, std::memory_order_release);
+      }
     }
+    if (state->consumed.load(std::memory_order_relaxed) >=
+        state->total_messages) {
+      break;
+    }
+    co_await mailbox->Wait();
   }
 
   {
@@ -205,6 +211,7 @@ void test_mailbox_receive_stress() {
   state.total_messages = kTotalMessages;
 
   auto task = mailbox_consumer(mailbox, &state, kProducerCount);
+  mailbox->ArmConsumer(task.handle_);
   ac::ActorScheduler::Instance().Enqueue(task.handle_);
 
   std::barrier send_barrier(static_cast<std::ptrdiff_t>(kProducerCount));
