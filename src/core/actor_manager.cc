@@ -26,23 +26,18 @@ auto ActorManager::__generate_creator(std::string path) {
 
 LaunchTask ActorManager::__launch_actor(std::string path, std::size_t actor_id,
                                         MailBoxPtr mailbox) {
-  // TODO: 迁移RunCoroutine到此处，不提供虚函数接口给继承了ActorModule的模块
-  // 仅提供ProcessEvent虚函数接口，子模块只需要覆写该接口处理事件消息即可，
-  // 无须操心mailbox的接受、挂起等实施细节。
-  // 需要重写restart拉起崩溃模块，使其与reload功能不重复，目前restart拉起崩溃模块时依然会
-  // 重新调用dlopen去重新加载动态库，这个功能应该由reload负责，而不是restart，重启崩溃模块时
-  // 只需要重新创建一个协程即可，无需重复加载/卸载动态库。
   ActorModule *actor = nullptr;
   dlerror();
   void *handle = dlopen(path.c_str(), RTLD_LAZY);
-  if (handle) {
+  if (handle == NULL) [[unlikely]] {
+    LOG_E("Failed to load library: {}, error: {}", path, dlerror());
+  } else {
     auto create_func = (CreateModuleFunc)dlsym(handle, "CreateModule");
     const char *dlsym_error = dlerror();
     if (dlsym_error) {
       LOG_E("Cannot find the CreateModule function symbol. error: {}",
             dlsym_error);
       dlclose(handle);
-      goto creator_exit;
     }
     auto destroy_func = (DestroyModuleFunc)dlsym(handle, "DestroyModule");
     dlsym_error = dlerror();
@@ -50,32 +45,25 @@ LaunchTask ActorManager::__launch_actor(std::string path, std::size_t actor_id,
       LOG_E("Cannot find the DestroyModule function symbol. error: {}",
             dlsym_error);
       dlclose(handle);
-      goto creator_exit;
+      goto module_exit;
     }
-    try {
-      actor = create_func(actor_id, this->mailbox_);
-      if (actor) {
-        actor->Init(mailbox);
-        co_await actor->RunCoroutine(mailbox);
-      } else {
-        throw std::runtime_error("CreateModule() failed.");
-      }
-    } catch (const std::exception &e) {
-      if (actor) {
-        actor->CrashReport(e);
-      } else {
-        LOG_E("unable to create module, error: {}", e.what());
-      }
-    }
+    actor = create_func(actor_id, this->mailbox_);
     if (actor) {
+      actor->Init(mailbox);
+      while (true) {
+        if (co_await actor->RunCoroutine(mailbox) ==
+            ActorExitState::kExitSuccess)
+          break;
+      }
       actor->Uninit(mailbox);
-      destroy_func(&actor);
+      destroy_func(actor);
+      actor = nullptr;
+    } else {
+      LOG_E("create_func() return a NULL pointer.");
     }
     dlclose(handle);
-  } else {
-    LOG_E("Failed to load library: {}, error: {}", path, dlerror());
   }
-creator_exit:
+module_exit:
   // send exited message to parent mailbox
   EventMessage *msg =
       new EventMessage(1, EventType::kEventModuleExited, actor_id);
@@ -135,7 +123,8 @@ LaunchTask ActorManager::RunCoroutine() {
       switch (msg->type_) {
       case EventType::kEventCmdExit: {
         event_message_release(&msg);
-        goto coro_exit;
+        main_latch_.count_down();
+        co_return;
       }
       case EventType::kEventCmdModuleReload: {
         __handle_cmd_reload(msg);
@@ -145,12 +134,12 @@ LaunchTask ActorManager::RunCoroutine() {
         __handle_cmd_remove(msg);
         break;
       }
-      case EventType::kEventCrashReport: {
-        __handle_event_crash(msg);
-        break;
-      }
       case EventType::kEventModuleExited: {
         __handle_event_exit(msg);
+        break;
+      }
+      case EventType::kEventCrashReport: {
+        __handle_event_crash(msg);
         break;
       }
       default:
@@ -161,8 +150,6 @@ LaunchTask ActorManager::RunCoroutine() {
     }
     co_await mailbox_->Wait();
   }
-coro_exit:
-  main_latch_.count_down();
 }
 
 void ActorManager::__reload_module(std::size_t module_id,
@@ -306,7 +293,7 @@ bool ActorManager::__search_module_and_remove(std::string_view module_name) {
 
 void ActorManager::__handle_cmd_reload(EventMessage *message) {
   if (!PluginManager::Instance().UpdateConfig()) {
-    LOG_E("failed to reload modules.");
+    LOG_E("failed to reload modules. update config file failed.");
     return;
   }
   if (!__search_module_and_remove(message->get<std::string>())) {
@@ -346,7 +333,6 @@ void ActorManager::__handle_event_exit(EventMessage *message) {
     return;
   }
   if (reload_flag) {
-    pending_restart_.erase(message->sender_id_);
     // reload module, load new library, reuse mailbox
     if (reload_all_flag_) {
       if (pending_reload_.empty()) {
@@ -358,11 +344,6 @@ void ActorManager::__handle_event_exit(EventMessage *message) {
             message->sender_id_);
       __reload_module(message->sender_id_, it->second.module_name);
     }
-  } else if (pending_restart_.erase(message->sender_id_) != 0) {
-    LOG_I("module: {} crashed, restarting, id: {}", it->second.module_name,
-          message->sender_id_);
-    auto task = it->second.creator(it->second.actor_id, it->second.mailbox);
-    ActorScheduler::Instance().Enqueue(task.handle_);
   } else {
     // not reload, remove module
     LOG_I("module: {} exited, id: {}, modules: {}", it->second.module_name,
@@ -376,9 +357,8 @@ void ActorManager::__handle_event_crash(EventMessage *message) {
   if (it != childrens_.end()) {
     LOG_E("received module crash report, message: {}",
           message->get<std::string>());
-    pending_restart_.insert(message->sender_id_);
   } else {
-    LOG_W("Actor Not found, actor id: {}", message->sender_id_);
+    LOG_W("Module Not found, actor id: {}", message->sender_id_);
   }
 }
 

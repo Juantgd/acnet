@@ -126,7 +126,7 @@ static int parse_command_line(int argc, char *argv[]) {
         if (pid_file == NULL) {
           fprintf(stderr, "pid file: fopen() failed, error: %s\n",
                   strerror(errno));
-          exit(EXIT_FAILURE);
+          std::exit(EXIT_FAILURE);
         }
         if (fgets(pid_str, 32, pid_file) == NULL) {
           if (ferror(pid_file)) {
@@ -136,7 +136,7 @@ static int parse_command_line(int argc, char *argv[]) {
             fprintf(stderr, "pid file: fgets() failed, empty file\n");
           }
           fclose(pid_file);
-          exit(EXIT_FAILURE);
+          std::exit(EXIT_FAILURE);
         }
         fclose(pid_file);
         pid_t acnet_pid = static_cast<pid_t>(strtol(pid_str, NULL, 10));
@@ -144,10 +144,10 @@ static int parse_command_line(int argc, char *argv[]) {
       } else {
         fprintf(stderr, "control file: fopen() failed. error: %s\n",
                 strerror(errno));
-        exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
       }
     } else {
-      exit(EXIT_FAILURE);
+      std::exit(EXIT_FAILURE);
     }
   }
   return 0;
@@ -188,16 +188,18 @@ int main(int argc, char *argv[]) {
 
   if (!mkdir_if_not_exists("logs")) {
     fprintf(stderr, "failed to create directory: ./logs/\n");
-    exit(EXIT_FAILURE);
+    std::exit(EXIT_FAILURE);
   }
 
   FILE *pid_file = fopen(kPidFile, "w");
   if (pid_file == NULL) {
     fprintf(stderr, "fopen() failed, error: %s\n", strerror(errno));
-    exit(EXIT_FAILURE);
+    std::exit(EXIT_FAILURE);
   }
   fprintf(pid_file, "%d", getpid());
   fclose(pid_file);
+
+  std::atexit([]() { delete_if_exists(kPidFile); });
 
   struct sigaction act;
   act.sa_handler = sigal_handle;
@@ -206,8 +208,6 @@ int main(int argc, char *argv[]) {
   sigaction(SIGHUP, &act, NULL);
 
   manager.EventLoop();
-
-  delete_if_exists(kPidFile);
 
   return 0;
 }

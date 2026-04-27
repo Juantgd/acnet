@@ -17,7 +17,6 @@
 
 #include "actor_scheduler.h"
 #include "event_message.h"
-#include "helper.h"
 #include "mail_box.h"
 #include "task.h"
 
@@ -30,8 +29,9 @@ public:
   explicit Watchdog(std::chrono::seconds timeout)
       : thread_([timeout, this]() {
           std::unique_lock<std::mutex> lock(mutex_);
-          if (cv_.wait_for(lock, timeout,
-                           [&]() { return !armed_.load(std::memory_order_acquire); })) {
+          if (cv_.wait_for(lock, timeout, [&]() {
+                return !armed_.load(std::memory_order_acquire);
+              })) {
             return;
           }
           std::cerr << "test timeout after " << timeout.count() << " seconds\n";
@@ -74,8 +74,7 @@ ac::EventMessage *make_message(std::size_t id) {
 void test_mail_queue_stress() {
   constexpr std::size_t kProducerCount = 4;
   constexpr std::size_t kMessagesPerProducer = 50000;
-  constexpr std::size_t kTotalMessages =
-      kProducerCount * kMessagesPerProducer;
+  constexpr std::size_t kTotalMessages = kProducerCount * kMessagesPerProducer;
   constexpr std::size_t kQueueSize = 1024;
 
   ac::MailQueue queue(kQueueSize);
@@ -154,7 +153,7 @@ ac::LaunchTask mailbox_consumer(ac::MailBoxPtr mailbox,
         state->error = "MailBox returned a null message";
         state->done = true;
         state->cv.notify_all();
-        goto coro_exit;
+        co_return;
       }
       if (message->sender_id_ >= state->total_messages) {
         std::lock_guard<std::mutex> lock(state->mutex);
@@ -162,7 +161,7 @@ ac::LaunchTask mailbox_consumer(ac::MailBoxPtr mailbox,
         state->done = true;
         state->cv.notify_all();
         ac::event_message_release(&message);
-        goto coro_exit;
+        co_return;
       }
       if (state->seen[message->sender_id_] != 0) {
         std::lock_guard<std::mutex> lock(state->mutex);
@@ -170,14 +169,13 @@ ac::LaunchTask mailbox_consumer(ac::MailBoxPtr mailbox,
         state->done = true;
         state->cv.notify_all();
         ac::event_message_release(&message);
-        goto coro_exit;
+        co_return;
       }
 
       state->seen[message->sender_id_] = 1;
       std::size_t consumed =
           state->consumed.fetch_add(1, std::memory_order_relaxed) + 1;
       ac::event_message_release(&message);
-      message = nullptr;
 
       if (consumed % producers_per_round == 0) {
         state->phase.fetch_add(1, std::memory_order_release);
@@ -195,8 +193,7 @@ ac::LaunchTask mailbox_consumer(ac::MailBoxPtr mailbox,
     state->done = true;
   }
   state->cv.notify_all();
-coro_exit:
-  co_await std::suspend_never();
+  co_return;
 }
 
 void test_mailbox_receive_stress() {
@@ -234,7 +231,11 @@ void test_mailbox_receive_stress() {
   {
     std::unique_lock<std::mutex> lock(state.mutex);
     bool completed = state.cv.wait_for(lock, 20s, [&]() { return state.done; });
-    expect(completed, "MailBox stress test timed out");
+    auto consumed_msg = state.consumed.load(std::memory_order_relaxed);
+    auto dropped_msg = mailbox->get_dropped_count();
+    expect(completed, std::format("MailBox stress test timed out, consumed: "
+                                  "{}, expect: {}, dropped: {}",
+                                  consumed_msg, kTotalMessages, dropped_msg));
     expect(state.error.empty(), state.error);
   }
 
@@ -242,8 +243,12 @@ void test_mailbox_receive_stress() {
     producer.join();
   }
 
-  expect(state.consumed.load(std::memory_order_relaxed) == kTotalMessages,
-         "MailBox did not consume every message");
+  auto consumed_msg = state.consumed.load(std::memory_order_relaxed);
+
+  expect(consumed_msg == kTotalMessages,
+         std::format(
+             "MailBox did not consume every message, consumed: {}, expect: {}",
+             consumed_msg, kTotalMessages));
   expect(mailbox->get_dropped_count() == 0, "MailBox dropped messages");
   for (std::size_t i = 0; i != kTotalMessages; ++i) {
     expect(state.seen[i] == 1, "MailBox lost a message");
@@ -253,7 +258,6 @@ void test_mailbox_receive_stress() {
 } // namespace
 
 int main() {
-  ac::Logger::Instance()->set_log_level(quill::LogLevel::None);
   Watchdog watchdog(30s);
 
   test_mail_queue_stress();

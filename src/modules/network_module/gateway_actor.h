@@ -16,7 +16,7 @@ public:
 
   void Uninit(MailBoxPtr &mailbox) override;
 
-  Task<void> RunCoroutine(MailBoxPtr &mailbox) override;
+  void ProcessEvent(EventMessage *message) override;
 
 private:
   int fd_{-1};

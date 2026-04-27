@@ -7,7 +7,6 @@
 #include <latch>
 #include <string_view>
 #include <unordered_map>
-#include <unordered_set>
 
 #include "mail_box.h"
 #include "task.h"
@@ -60,7 +59,6 @@ private:
   std::latch main_latch_{1};
 
   std::unordered_map<std::size_t, ActorMetaData> childrens_;
-  std::unordered_set<std::size_t> pending_restart_;
   std::vector<std::size_t> pending_reload_;
 
   MailBoxPtr mailbox_;

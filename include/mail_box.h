@@ -31,7 +31,9 @@ private:
       // 先发布消费者句柄，再清除scheduled_。
       // 这样发送线程一旦观察到scheduled_ == false，就可以安全地重新调度该协程。
       mail_.consumer_.store(handle.address(), std::memory_order_relaxed);
-      mail_.scheduled_.store(false, std::memory_order_release);
+      // Use an RMW here so the consumer synchronizes with the last sender that
+      // observed it as scheduled before deciding to sleep.
+      mail_.scheduled_.exchange(false, std::memory_order_acq_rel);
       // 关闭“刚确认邮箱为空、协程准备挂起时消息恰好到达”的竞争窗口。
       if (mail_.mailbox_.can_dequeue() &&
           !mail_.scheduled_.exchange(true, std::memory_order_acq_rel)) {

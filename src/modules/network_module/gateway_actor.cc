@@ -18,30 +18,14 @@ void GateWayActor::Uninit(MailBoxPtr &mailbox) {
                                         mailbox);
 }
 
-Task<void> GateWayActor::RunCoroutine(MailBoxPtr &mailbox) {
-  LOG_I("[NetActor id: {}] module starting...", actor_id_);
-  mailbox->MarkRunning();
-  while (true) {
-    while (mailbox->try_receive(&msg_)) {
-      LOG_I("[NetActor id: {}] received a event message...", actor_id_);
-      switch (msg_->type_) {
-      case EventType::kEventCmdModuleStop: {
-        event_message_release(&msg_);
-        msg_ = nullptr;
-        goto coro_exit;
-      }
-      default:
-        LOG_W("[NetActor id: {}] unsupported event message type: {}", actor_id_,
-              static_cast<int>(msg_->type_));
-        break;
-      }
-      event_message_release(&msg_);
-      msg_ = nullptr;
-    }
-    co_await mailbox->Wait();
+void GateWayActor::ProcessEvent(EventMessage *message) {
+  switch (message->type_) {
+  case EventType::kEventNone: {
+    break;
   }
-coro_exit:
-  LOG_I("[NetActor id: {}] module shutdown...", actor_id_);
+  default: {
+  }
+  }
 }
 
 extern "C" {

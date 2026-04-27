@@ -12,17 +12,36 @@
 
 namespace ac {
 
-enum class EventType {
-  kEventNone = 0,
-  kEventCmdExit,
-  kEventCmdModuleStop,
-  kEventCmdModuleReload,
-  kEventCmdModuleRemove,
+// 最高位为0代表控制消息
+// 否则为数据消息
 
-  kEventModuleExited,
+#define EVENT_TYPE_MAP(XX)                                                     \
+  XX(0x00, kEventNone, "NOP Event")                                            \
+  XX(0x01, kEventCmdExit, "Exit Command Event")                                \
+  XX(0x02, kEventCmdModuleStop, "Module Stop Command Event")                   \
+  XX(0x03, kEventCmdModuleReload, "Module Reload Command Event")               \
+  XX(0x04, kEventCmdModuleRemove, "Module Remove Command Event")               \
+  XX(0x80, kEventModuleExited, "Module Exited Event")                          \
+  XX(0x81, kEventCrashReport, "Crash Report Event")
 
-  kEventCrashReport,
+enum class EventType : uint8_t {
+#define XX(value, type, str) type = value,
+  EVENT_TYPE_MAP(XX)
+#undef XX
 };
+
+inline const char *event_type_to_string(EventType type) {
+  switch (type) {
+#define XX(value, type, str)                                                   \
+  case EventType::type:                                                        \
+    return str;                                                                \
+    break;
+    EVENT_TYPE_MAP(XX)
+#undef XX
+  default:
+    return "Unknown Event Type";
+  }
+}
 
 struct PayloadBase {};
 
