@@ -37,7 +37,7 @@ void MailBox::Send(EventMessage *message) {
   if (mailbox_.try_enqueue(message)) {
     if (!scheduled_.exchange(true, std::memory_order_acq_rel)) {
       auto handle = std::coroutine_handle<>::from_address(
-          consumer_.load(std::memory_order_acquire));
+          consumer_.load(std::memory_order_relaxed));
       if (handle && !handle.done()) {
         ActorScheduler::Instance().Enqueue(handle);
       }

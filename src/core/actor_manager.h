@@ -5,13 +5,18 @@
 
 #include <functional>
 #include <latch>
+#include <memory>
+#include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "mail_box.h"
 #include "task.h"
 
 namespace ac {
+
+struct LoadedModule;
 
 struct ActorMetaData {
   std::size_t actor_id;
@@ -36,10 +41,11 @@ public:
   void Shutdown();
 
 private:
-  auto __generate_creator(std::string path);
+  std::function<LaunchTask(std::size_t, MailBoxPtr)>
+  __generate_creator(std::string path);
 
-  LaunchTask __launch_actor(std::string path, std::size_t actor_id,
-                            MailBoxPtr mailbox);
+  LaunchTask __launch_actor(std::shared_ptr<LoadedModule> module,
+                            std::size_t actor_id, MailBoxPtr mailbox);
 
   void __load_modules();
 
@@ -49,9 +55,12 @@ private:
 
   void __reload_all_modules();
 
+  void __restart_module(ActorMetaData &metadata);
+
+  bool __handle_cmd_exit([[maybe_unused]] EventMessage *message);
   void __handle_cmd_reload(EventMessage *message);
   void __handle_cmd_remove(EventMessage *message);
-  void __handle_event_exit(EventMessage *message);
+  bool __handle_event_exit(EventMessage *message);
   void __handle_event_crash(EventMessage *message);
 
   bool is_running_{false};
@@ -59,7 +68,9 @@ private:
   std::latch main_latch_{1};
 
   std::unordered_map<std::size_t, ActorMetaData> childrens_;
-  std::vector<std::size_t> pending_reload_;
+  std::unordered_set<std::size_t> pending_reload_;
+  std::unordered_set<std::size_t> pending_stop_;
+  std::unordered_set<std::size_t> pending_restart_;
 
   MailBoxPtr mailbox_;
 };

@@ -33,12 +33,7 @@ ActorModule *CreateModule(std::size_t actor_id, MailBoxPtr parent_mailbox) {
   return new GateWayActor(actor_id, parent_mailbox);
 }
 
-void DestroyModule(ActorModule **module) {
-  if (*module) {
-    delete *module;
-    *module = nullptr;
-  }
-}
+void DestroyModule(ActorModule *module) { delete module; }
 }
 
 } // namespace ac
