@@ -43,10 +43,15 @@ ActorScheduler::~ActorScheduler() {
 }
 
 void ActorScheduler::Enqueue(const std::coroutine_handle<> &handle) {
-  // 本地工作线程任务队列已满,将其推入全局任务队列中
-  if (!tls_worker || !(tls_worker->local_queue.push(handle))) {
-    global_queue_.push(handle);
+  // worker内提交优先进入本地队列；出现积压时唤醒空闲worker重新搜索任务。
+  if (tls_worker && tls_worker->local_queue.push(handle)) {
+    if (tls_worker->local_queue.approx_size() > 1) {
+      global_queue_.notify_one_idle();
+    }
+    return;
   }
+  // 外部线程提交或本地队列已满时进入全局注入队列。
+  global_queue_.push(handle);
 }
 
 void ActorScheduler::EnqueueBatch(
@@ -65,38 +70,57 @@ void *ActorScheduler::scheduler_thread(void *arg) {
   // 线程屏障,等待其他线程初始化完毕
   pthread_barrier_wait(&sched->thread_barrier_);
 
-  StealState result;
-  uint32_t target_id;
   uint32_t tick = 0;
 
-  while (sched->is_running()) {
-    // 获取已就绪的协程句柄,优先从本地队列获取
+  auto try_get_task = [&]() {
     std::coroutine_handle<> task{nullptr};
-    // 每执行61次就从全局队列中获取任务
+
+    // 保留周期性检查全局队列，避免本地队列持续繁忙时饿死外部提交任务。
     if (++tick % 61 == 0) {
       task = sched->global_queue_.try_pop();
-    }
-    if (!task) {
-      tls_worker->local_queue.pop(task);
-    }
-    // 如果本地没有,则随机窃取其他工作线程的任务
-    if (!task) {
-      target_id = static_cast<uint32_t>(rng() % sched->thread_entries_);
-      for (uint32_t i = 0; i != sched->thread_entries_; ++i) {
-        // 不能窃取自己的任务队列
-        if (target_id != tls_worker->worker_id) {
-          result = sched->workers_[target_id].local_queue.steal(task);
-          if (result == StealState::kSuccess)
-            break;
-        }
-        target_id = (target_id + 1) % sched->thread_entries_;
+      if (task) {
+        return task;
       }
     }
-    // 当前工作线程没有就绪的任务,且窃取其他工作线程中的任务队列失败
-    // 则从全局队列中阻塞获取就绪任务
+
+    tls_worker->local_queue.pop(task);
+    if (task) {
+      return task;
+    }
+
+    task = sched->global_queue_.try_pop();
+    if (task) {
+      return task;
+    }
+
+    uint32_t target_id = static_cast<uint32_t>(rng() % sched->thread_entries_);
+    for (uint32_t i = 0; i != sched->thread_entries_; ++i) {
+      if (target_id != tls_worker->worker_id) {
+        StealState result = sched->workers_[target_id].local_queue.steal(task);
+        if (result == StealState::kSuccess) {
+          if (sched->workers_[target_id].local_queue.approx_size() > 1) {
+            sched->global_queue_.notify_one_idle();
+          }
+          LOG_D("worker steal success, task: {}", task.address());
+          return task;
+        }
+      }
+      target_id = (target_id + 1) % sched->thread_entries_;
+    }
+
+    return task;
+  };
+
+  while (sched->is_running()) {
+    std::coroutine_handle<> task = try_get_task();
     if (!task) {
-      // 如果全局任务队列为空，这里会一直阻塞
-      task = sched->global_queue_.wait_and_pop();
+      std::size_t observed_epoch = sched->global_queue_.prepare_park();
+      task = try_get_task();
+      if (!task) {
+        sched->global_queue_.park(observed_epoch);
+        continue;
+      }
+      sched->global_queue_.cancel_park();
     }
     if (task && !task.done()) {
       LOG_D("got the task, task: {}", task.address());

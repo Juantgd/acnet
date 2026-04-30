@@ -57,7 +57,7 @@ private:
 
   void __restart_module(ActorMetaData &metadata);
 
-  bool __handle_cmd_exit([[maybe_unused]] EventMessage *message);
+  bool __handle_cmd_exit(EventMessage *message);
   void __handle_cmd_reload(EventMessage *message);
   void __handle_cmd_remove(EventMessage *message);
   bool __handle_event_exit(EventMessage *message);

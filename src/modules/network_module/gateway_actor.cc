@@ -2,7 +2,11 @@
 
 #include "gateway_actor.h"
 
+#include <chrono>
+
 #include "event_bus.h"
+
+using namespace std::chrono_literals;
 
 namespace ac {
 
@@ -16,6 +20,10 @@ void GateWayActor::Init(MailBoxPtr &mailbox) {
 void GateWayActor::Uninit(MailBoxPtr &mailbox) {
   ActorEventBus::Instance().Unsubscribe(EventType::kEventCmdModuleStop,
                                         mailbox);
+}
+
+void GateWayActor::error_handle([[maybe_unused]] const std::exception &e) {
+  std::this_thread::sleep_for(5s);
 }
 
 void GateWayActor::ProcessEvent(EventMessage *message) {

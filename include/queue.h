@@ -98,10 +98,9 @@ public:
       if (diff < 0) {
         return false;
       }
-      if (diff == 0 &&
-          write_index_.compare_exchange_weak(write_idx, write_idx + 1,
-                                             std::memory_order_relaxed,
-                                             std::memory_order_relaxed)) {
+      if (diff == 0 && write_index_.compare_exchange_weak(
+                           write_idx, write_idx + 1, std::memory_order_relaxed,
+                           std::memory_order_relaxed)) {
         break;
       }
       write_idx = write_index_.load(std::memory_order_relaxed);
@@ -165,6 +164,14 @@ public:
     std::atomic_thread_fence(std::memory_order_release);
     bottom_.store(bt + 1, std::memory_order_relaxed);
     return true;
+  }
+
+  std::size_t approx_size() const {
+    std::size_t tp = top_.load(std::memory_order_acquire);
+    std::size_t bt = bottom_.load(std::memory_order_acquire);
+    auto diff =
+        static_cast<std::int64_t>(bt) - static_cast<std::int64_t>(tp);
+    return diff > 0 ? static_cast<std::size_t>(diff) : 0;
   }
 
   StealState pop(std::coroutine_handle<> &handle) {
@@ -233,12 +240,16 @@ public:
   ~GlobalQueue() = default;
 
   void push(const std::coroutine_handle<> &task) {
+    std::size_t wake_count = 0;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       queue_.push_back(task.address());
+      if (idle_threads_.load(std::memory_order_relaxed) > 0) {
+        ++wake_epoch_;
+        wake_count = 1;
+      }
     }
-    if (idle_threads_.load(std::memory_order_relaxed) > 0) {
-      // 仅唤醒一个工作线程执行
+    if (wake_count > 0) {
       cond_.notify_one();
     }
   }
@@ -247,37 +258,20 @@ public:
     if (tasks.empty()) {
       return;
     }
+    std::size_t wake_count = 0;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       for (const auto &task : tasks)
         queue_.push_back(task.address());
+      std::size_t idle_nr = idle_threads_.load(std::memory_order_relaxed);
+      wake_count = std::min(tasks.size(), idle_nr);
+      if (wake_count > 0) {
+        ++wake_epoch_;
+      }
     }
-    std::size_t idle_nr = idle_threads_.load(std::memory_order_relaxed);
-    std::size_t wake_count = std::min(tasks.size(), idle_nr);
-    LOG_D("idle_nr: {},tasks: {}", idle_nr, tasks.size());
-    // 精确唤醒,避免多个工作线程竞争同一个任务
     while (wake_count--) {
       cond_.notify_one();
     }
-  }
-
-  // 当工作线程中没有任务时，弹出全局队列中的就绪任务
-  // 若全局队列中没有就绪任务, 则阻塞工作线程的执行
-  std::coroutine_handle<> wait_and_pop() {
-    std::coroutine_handle<> task = nullptr;
-    {
-      std::unique_lock<std::mutex> lock(mutex_);
-      idle_threads_.fetch_add(1, std::memory_order_relaxed);
-      cond_.wait(lock, [this]() { return !queue_.empty() || stop_flag; });
-      idle_threads_.fetch_sub(1, std::memory_order_relaxed);
-      if (stop_flag || queue_.empty()) {
-        return nullptr;
-      }
-      // TODO: 当队列中就绪的任务过多时,直接弹出一大批任务,避免频繁的锁竞争
-      task = std::coroutine_handle<>::from_address(queue_.front());
-      queue_.pop_front();
-    }
-    return task;
   }
 
   // 尝试获取任务,用于工作线程轮询获取就绪任务
@@ -290,12 +284,45 @@ public:
     return task;
   }
 
+  void notify_one_idle() {
+    bool should_notify = false;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (idle_threads_.load(std::memory_order_relaxed) > 0) {
+        ++wake_epoch_;
+        should_notify = true;
+      }
+    }
+    if (should_notify) {
+      cond_.notify_one();
+    }
+  }
+
+  std::size_t prepare_park() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    idle_threads_.fetch_add(1, std::memory_order_relaxed);
+    return wake_epoch_;
+  }
+
+  void cancel_park() {
+    idle_threads_.fetch_sub(1, std::memory_order_relaxed);
+  }
+
+  void park(std::size_t observed_epoch) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    cond_.wait(lock, [this, observed_epoch]() {
+      return stop_flag || wake_epoch_ != observed_epoch;
+    });
+    idle_threads_.fetch_sub(1, std::memory_order_relaxed);
+  }
+
   void stop() {
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (stop_flag)
         return;
       stop_flag = true;
+      ++wake_epoch_;
     }
     cond_.notify_all();
   }
@@ -305,6 +332,7 @@ private:
   std::condition_variable cond_;
   std::deque<void *> queue_;
   std::atomic<std::size_t> idle_threads_{0};
+  std::size_t wake_epoch_{0};
   bool stop_flag{false};
 };
 

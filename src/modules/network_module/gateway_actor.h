@@ -18,6 +18,8 @@ public:
 
   void ProcessEvent(EventMessage *message) override;
 
+  void error_handle(const std::exception &e) override;
+
 private:
   int fd_{-1};
 };

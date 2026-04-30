@@ -17,7 +17,7 @@ Task<ActorExitState> ActorModule::RunCoroutine(MailBoxPtr &mailbox) {
   mailbox->MarkRunning();
   EventMessage *msg = nullptr;
   try {
-    std::this_thread::sleep_for(3s);
+    std::this_thread::sleep_for(1s);
     throw std::runtime_error("boom!boom!boom!");
     while (true) {
       while (mailbox->try_receive(&msg)) {
@@ -32,8 +32,6 @@ Task<ActorExitState> ActorModule::RunCoroutine(MailBoxPtr &mailbox) {
       co_await mailbox->Wait();
     }
   } catch (const std::exception &e) {
-    // customize error handle
-    this->error_handle(e);
     // 记录协程崩溃时所处理的事件消息类型
     EventType event_type = msg ? msg->type_ : EventType::kEventNone;
     event_message_release(&msg);
@@ -43,6 +41,9 @@ Task<ActorExitState> ActorModule::RunCoroutine(MailBoxPtr &mailbox) {
                                actor_id_, event_type_to_string(event_type),
                                e.what()));
     parent_mailbox_->Send(crash_msg);
+
+    // customize error handle
+    this->error_handle(e);
     co_return ActorExitState::kExitFailure;
   }
 }
